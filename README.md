@@ -1,31 +1,50 @@
-# Case Financials — Phase 1: Medical Expenses
+# Case Financials
 
-This workspace tracks the **Case Financials** module. Implementation spans two sibling repositories:
-
-| Component | Repository | Path |
-|-----------|------------|------|
-| AI extraction pipeline | [file-sorter](c:\Users\david\file-sorter) | `src/services/medicalRecordsCaptureService.ts` |
-| Database migrations | file-sorter | `client-supabase/001`–`004` |
-| Medical Expenses UI | [docket-calendar](c:\Users\david\docket-calendar) | `src/app/cases/[caseId]/financials/medical-expenses` |
+Standalone financial module for Ramos James Law. Shares the **client Supabase** database with DocketFlow and Case Tracker, but runs as its own app.
 
 ## Architecture
 
 ```
-Upload → Classify → File to Dropbox → AI Medical Extraction → case_medical_records
-                                                              ↓
-                                    Case → Financials → Medical Expenses (DocketFlow UI)
+file-sorter (document pipeline)  →  case_medical_records (Supabase)
+                                           ↓
+case-financials (this app)       →  Medical Expenses UI + future modules
 ```
 
-- **Source of truth:** `case_medical_records` table (aliased as `medical_expenses` view)
-- **Source documents:** Dropbox files linked via `dropbox_permalink`
-- **Review workflow:** All extractions default to `needs_review`; staff edit and mark `reviewed`
+| Layer | Location |
+|-------|----------|
+| **UI** | This repo (`case-financials`) — port 3001 by default |
+| **AI extraction** | `file-sorter` — post-approve medical capture hook |
+| **Database** | `migrations/` — run in client Supabase (001–004) |
+
+## Local development
+
+```bash
+cp .env.example .env.local
+# Add NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY (same as DocketFlow)
+
+npm install
+npm run dev
+```
+
+Open http://localhost:3001
+
+Add `http://localhost:3001/auth/callback` to Supabase → Authentication → Redirect URLs.
+
+## Routes
+
+- `/` — case list → Medical Expenses
+- `/cases/[caseId]/financials/medical-expenses` — review workflow UI
+
+Future: `/cases/[caseId]/financials/*` for Case Expenses, Liens, Subrogation, etc.
 
 ## Deploy checklist
 
-1. Run migrations `001`–`004` in the **client Supabase** project
-2. Set `CLIENT_SUPABASE_URL`, `CLIENT_SUPABASE_SERVICE_ROLE_KEY`, `MEDICAL_RECORDS_CAPTURE_ENABLED=true` in file-sorter
-3. Deploy file-sorter and docket-calendar
+1. Run `migrations/001` through `004` in client Supabase
+2. Deploy **file-sorter** with `MEDICAL_RECORDS_CAPTURE_ENABLED=true`
+3. Deploy **case-financials** with Supabase env vars + production `NEXT_PUBLIC_SITE_URL`
+4. Add production `/auth/callback` to Supabase redirect URLs
 
-## Future phases
+## Related repos
 
-Route namespace `/cases/[caseId]/financials/*` is reserved for Case Expenses, Liens, Subrogation, Settlement Calculator, Disbursement Builder, and Trust Accounting.
+- **DocketFlow** (`docket-calendar`) — calendar/deadlines only; no financial UI
+- **file-sorter** — document ingestion and AI extraction pipeline
