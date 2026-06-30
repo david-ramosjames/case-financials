@@ -17,6 +17,9 @@ export function NavBar() {
           <Link href="/" className="text-white/80 hover:text-white">
             Cases
           </Link>
+          <Link href="/log" className="text-white/80 hover:text-white">
+            Expense Log
+          </Link>
           {!loading && user ? (
             <>
               <span className="hidden text-white/60 sm:inline">{user.email}</span>

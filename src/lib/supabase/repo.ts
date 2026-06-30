@@ -17,6 +17,15 @@ function formatWriteError(context: string, err: { message?: string; code?: strin
   return err.code ? `${context} (${err.code}): ${err.message}` : `${context}: ${err.message}`;
 }
 
+function parseTimestamp(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Date.parse(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return 0;
+}
+
 function caseFromRow(r: Record<string, unknown>): Case {
   return {
     id: r.id as string,
@@ -53,8 +62,8 @@ function medicalExpenseFromRow(r: Record<string, unknown>): MedicalExpense {
     documentExtractionConfidence:
       r.document_extraction_confidence != null ? Number(r.document_extraction_confidence) : null,
     textExtractionMethod: (r.text_extraction_method as string) ?? null,
-    createdAt: Number(r.created_at),
-    updatedAt: Number(r.updated_at),
+    createdAt: parseTimestamp(r.created_at),
+    updatedAt: parseTimestamp(r.updated_at),
   };
 }
 
@@ -147,6 +156,18 @@ export async function fetchMedicalExpensesForCase(
   return (data ?? []).map((r) => medicalExpenseFromRow(r as Record<string, unknown>));
 }
 
+/** Firm-wide expense log — newest logged first. */
+export async function fetchAllMedicalExpensesLog(
+  supabase: SupabaseClient
+): Promise<MedicalExpense[]> {
+  const { data, error } = await supabase
+    .from("case_medical_records")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => medicalExpenseFromRow(r as Record<string, unknown>));
+}
+
 export function subscribeMedicalExpensesForCase(
   supabase: SupabaseClient,
   caseId: string,
@@ -167,6 +188,34 @@ export function subscribeMedicalExpensesForCase(
       : `r${Date.now()}`;
   const ch = supabase
     .channel(`medical-expenses:${caseId}:${lane}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "case_medical_records" },
+      () => void load()
+    )
+    .subscribe();
+  return () => void supabase.removeChannel(ch);
+}
+
+export function subscribeAllMedicalExpensesLog(
+  supabase: SupabaseClient,
+  cb: (expenses: MedicalExpense[]) => void
+): Unsubscribe {
+  const load = async () => {
+    try {
+      cb(await fetchAllMedicalExpensesLog(supabase));
+    } catch (e) {
+      console.warn("[subscribeAllMedicalExpensesLog]", e);
+      cb([]);
+    }
+  };
+  void load();
+  const lane =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `r${Date.now()}`;
+  const ch = supabase
+    .channel(`medical-expenses:log:${lane}`)
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "case_medical_records" },
