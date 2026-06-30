@@ -37,6 +37,18 @@ Add `http://localhost:3001/auth/callback` to Supabase → Authentication → Red
 
 Future: `/cases/[caseId]/financials/*` for Case Expenses, Liens, Subrogation, etc.
 
+## Deploy on Vercel
+
+1. Import the GitHub repo and set **Framework Preset** to **Next.js** (not “Other”).
+2. Leave **Output Directory** empty — do not set it to `public`. Next.js builds to `.next`; Vercel handles that automatically.
+3. Set environment variables:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_SITE_URL` (your production URL, e.g. `https://financials.yourfirm.com`)
+4. Add `https://<your-domain>/auth/callback` to Supabase → Authentication → Redirect URLs.
+
+If the build succeeds but deploy fails with *“No Output Directory named public found”*, the project is misconfigured as a static site — clear the Output Directory override in Vercel → Project Settings → Build & Development Settings.
+
 ## Deploy checklist
 
 1. Run `migrations/001` through `004` in client Supabase
