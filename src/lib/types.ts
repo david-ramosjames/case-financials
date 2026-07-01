@@ -61,3 +61,59 @@ export interface MedicalExpense {
   createdAt: number;
   updatedAt: number;
 }
+
+export type CaseExpenseDocumentType =
+  | "invoice"
+  | "receipt"
+  | "statement"
+  | "check_copy"
+  | "credit_card"
+  | "vendor_bill"
+  | "other";
+
+export type CaseExpensePaymentStatus =
+  | "pending_review"
+  | "unpaid"
+  | "partially_paid"
+  | "paid"
+  | "waived"
+  | "closed"
+  | "unknown";
+
+export type CaseExpenseReviewStatus =
+  | "needs_review"
+  | "reviewed"
+  | "pending"
+  | "in_review"
+  | "approved"
+  | "rejected";
+
+export interface CaseExpense {
+  id: string;
+  caseId: string | null;
+  caseNumber: string;
+  vendorName: string;
+  expenseType: string | null;
+  description: string | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  serviceDate: string | null;
+  amount: number | null;
+  paymentStatus: CaseExpensePaymentStatus;
+  paidAmount: number | null;
+  checkNumber: string | null;
+  payeeName: string | null;
+  payeeAddress: string | null;
+  referenceNumber: string | null;
+  relatedParty: string | null;
+  dropboxFileId: string | null;
+  dropboxFilePath: string | null;
+  dropboxPermalink: string | null;
+  documentType: CaseExpenseDocumentType | null;
+  reviewStatus: CaseExpenseReviewStatus;
+  extractionConfidence: number | null;
+  documentExtractionConfidence: number | null;
+  textExtractionMethod: string | null;
+  createdAt: number;
+  updatedAt: number;
+}

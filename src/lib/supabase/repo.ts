@@ -1,6 +1,10 @@
 import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
 import type {
   Case,
+  CaseExpense,
+  CaseExpenseDocumentType,
+  CaseExpensePaymentStatus,
+  CaseExpenseReviewStatus,
   MedicalExpense,
   MedicalExpenseDocumentType,
   MedicalExpensePaymentStatus,
@@ -246,4 +250,166 @@ export async function markMedicalExpenseReviewed(
     .update({ review_status: "reviewed", updated_at: Date.now() })
     .eq("id", expenseId);
   if (error) throw new Error(formatWriteError("Mark reviewed", error));
+}
+
+/* ── Case Expenses (vendor / case costs) ─────────────────────────── */
+
+function caseExpenseFromRow(r: Record<string, unknown>): CaseExpense {
+  return {
+    id: r.id as string,
+    caseId: (r.case_id as string) ?? null,
+    caseNumber: r.case_number as string,
+    vendorName: r.vendor_name as string,
+    expenseType: (r.expense_type as string) ?? null,
+    description: (r.description as string) ?? null,
+    invoiceNumber: (r.invoice_number as string) ?? null,
+    invoiceDate: (r.invoice_date as string) ?? null,
+    serviceDate: (r.service_date as string) ?? null,
+    amount: r.amount != null ? Number(r.amount) : null,
+    paymentStatus: r.payment_status as CaseExpensePaymentStatus,
+    paidAmount: r.paid_amount != null ? Number(r.paid_amount) : null,
+    checkNumber: (r.check_number as string) ?? null,
+    payeeName: (r.payee_name as string) ?? null,
+    payeeAddress: (r.payee_address as string) ?? null,
+    referenceNumber: (r.reference_number as string) ?? null,
+    relatedParty: (r.related_party as string) ?? null,
+    dropboxFileId: (r.dropbox_file_id as string) ?? null,
+    dropboxFilePath: (r.dropbox_file_path as string) ?? null,
+    dropboxPermalink: (r.dropbox_permalink as string) ?? null,
+    documentType: (r.document_type as CaseExpenseDocumentType) ?? null,
+    reviewStatus: r.review_status as CaseExpenseReviewStatus,
+    extractionConfidence: r.extraction_confidence != null ? Number(r.extraction_confidence) : null,
+    documentExtractionConfidence:
+      r.document_extraction_confidence != null ? Number(r.document_extraction_confidence) : null,
+    textExtractionMethod: (r.text_extraction_method as string) ?? null,
+    createdAt: parseTimestamp(r.created_at),
+    updatedAt: parseTimestamp(r.updated_at),
+  };
+}
+
+function caseExpenseToRow(patch: Partial<CaseExpense>): Record<string, unknown> {
+  return clean({
+    vendor_name: patch.vendorName,
+    expense_type: patch.expenseType,
+    description: patch.description,
+    invoice_number: patch.invoiceNumber,
+    invoice_date: patch.invoiceDate,
+    service_date: patch.serviceDate,
+    amount: patch.amount,
+    payment_status: patch.paymentStatus,
+    paid_amount: patch.paidAmount,
+    check_number: patch.checkNumber,
+    payee_name: patch.payeeName,
+    payee_address: patch.payeeAddress,
+    reference_number: patch.referenceNumber,
+    related_party: patch.relatedParty,
+    document_type: patch.documentType,
+    review_status: patch.reviewStatus,
+    updated_at: Date.now(),
+  });
+}
+
+export async function fetchCaseExpensesForCase(
+  supabase: SupabaseClient,
+  caseId: string
+): Promise<CaseExpense[]> {
+  const { data: caseRow } = await supabase
+    .from("cases")
+    .select("case_number")
+    .eq("id", caseId)
+    .maybeSingle();
+
+  const caseNumber = (caseRow as { case_number?: string } | null)?.case_number?.trim();
+  let query = supabase.from("case_expenses").select("*");
+
+  if (caseNumber) {
+    query = query.or(`case_id.eq.${caseId},case_number.eq.${caseNumber}`);
+  } else {
+    query = query.eq("case_id", caseId);
+  }
+
+  const { data, error } = await query.order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => caseExpenseFromRow(r as Record<string, unknown>));
+}
+
+export function subscribeCaseExpensesForCase(
+  supabase: SupabaseClient,
+  caseId: string,
+  cb: (expenses: CaseExpense[]) => void
+): Unsubscribe {
+  const load = async () => {
+    try {
+      cb(await fetchCaseExpensesForCase(supabase, caseId));
+    } catch (e) {
+      console.warn("[subscribeCaseExpensesForCase]", e);
+      cb([]);
+    }
+  };
+  void load();
+  const lane =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `r${Date.now()}`;
+  const ch = supabase
+    .channel(`case-expenses:${caseId}:${lane}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "case_expenses" }, () => void load())
+    .subscribe();
+  return () => void supabase.removeChannel(ch);
+}
+
+export async function fetchAllCaseExpensesLog(supabase: SupabaseClient): Promise<CaseExpense[]> {
+  const { data, error } = await supabase
+    .from("case_expenses")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => caseExpenseFromRow(r as Record<string, unknown>));
+}
+
+export function subscribeAllCaseExpensesLog(
+  supabase: SupabaseClient,
+  cb: (expenses: CaseExpense[]) => void
+): Unsubscribe {
+  const load = async () => {
+    try {
+      cb(await fetchAllCaseExpensesLog(supabase));
+    } catch (e) {
+      console.warn("[subscribeAllCaseExpensesLog]", e);
+      cb([]);
+    }
+  };
+  void load();
+  const lane =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `r${Date.now()}`;
+  const ch = supabase
+    .channel(`case-expenses:log:${lane}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "case_expenses" }, () => void load())
+    .subscribe();
+  return () => void supabase.removeChannel(ch);
+}
+
+export async function updateCaseExpense(
+  supabase: SupabaseClient,
+  expenseId: string,
+  patch: Partial<CaseExpense>
+): Promise<void> {
+  const { error } = await supabase
+    .from("case_expenses")
+    .update(caseExpenseToRow(patch))
+    .eq("id", expenseId);
+  if (error) throw new Error(formatWriteError("Update case expense", error));
+}
+
+export async function markCaseExpenseReviewed(
+  supabase: SupabaseClient,
+  expenseId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("case_expenses")
+    .update({ review_status: "reviewed", updated_at: Date.now() })
+    .eq("id", expenseId);
+  if (error) throw new Error(formatWriteError("Mark case expense reviewed", error));
 }

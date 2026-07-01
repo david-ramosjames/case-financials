@@ -51,9 +51,10 @@ If the build succeeds but deploy fails with *“No Output Directory named public
 
 ## Deploy checklist
 
-1. Run `migrations/001` through `004` in **client Supabase** (SQL editor)
+1. Run `migrations/001` through `005` in **client Supabase** (SQL editor)
+   - `005_case_expenses.sql` — vendor/case cost table (Expenses folder)
    - If capture logs *Could not find the dropbox_permalink column*, run `004b_dropbox_permalink_column.sql` (or full `004`)
-2. Deploy **file-sorter** with `MEDICAL_RECORDS_CAPTURE_ENABLED=true`
+2. Deploy **file-sorter** with `MEDICAL_RECORDS_CAPTURE_ENABLED=true` and `CASE_EXPENSES_CAPTURE_ENABLED=true` (default on when client Supabase is configured)
 3. Deploy **case-financials** with Supabase env vars + production `NEXT_PUBLIC_SITE_URL`
 4. Add production `/auth/callback` to Supabase redirect URLs
 

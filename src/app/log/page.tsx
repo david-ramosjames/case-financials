@@ -6,18 +6,16 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getBrowserSupabase } from "@/lib/supabase/singleton";
-import { subscribeAllMedicalExpensesLog } from "@/lib/supabase/repo";
+import { subscribeAllCaseExpensesLog, subscribeAllMedicalExpensesLog } from "@/lib/supabase/repo";
 import {
-  DOCUMENT_TYPE_LABELS,
-  PAYMENT_STATUS_LABELS,
   REVIEW_STATUS_LABELS,
   formatCurrency,
   formatLoggedAt,
-  paymentBadgeVariant,
   reviewBadgeVariant,
   sourceFileName,
 } from "@/lib/medical-expense-display";
-import type { MedicalExpense } from "@/lib/types";
+import { CASE_EXPENSE_PAYMENT_LABELS, CASE_EXPENSE_REVIEW_LABELS } from "@/lib/case-expense-display";
+import type { CaseExpense, MedicalExpense } from "@/lib/types";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
@@ -29,14 +27,23 @@ import {
   Input,
   PageHeader,
   PageWrapper,
+  Select,
 } from "@/components/ui";
+
+type LogFilter = "all" | "medical" | "case";
+
+type LogRow =
+  | { kind: "medical"; createdAt: number; expense: MedicalExpense }
+  | { kind: "case"; createdAt: number; expense: CaseExpense };
 
 export default function ExpenseLogPage() {
   const router = useRouter();
   const hydrated = useHydrated();
   const { user, loading, supabaseReady } = useAuth();
-  const [expenses, setExpenses] = useState<MedicalExpense[]>([]);
+  const [medical, setMedical] = useState<MedicalExpense[]>([]);
+  const [caseExpenses, setCaseExpenses] = useState<CaseExpense[]>([]);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<LogFilter>("all");
 
   useEffect(() => {
     if (!loading && supabaseReady && !user) router.replace("/login");
@@ -45,28 +52,32 @@ export default function ExpenseLogPage() {
   useEffect(() => {
     if (!supabaseReady || loading || !user) return;
     const supabase = getBrowserSupabase();
-    const unsub = subscribeAllMedicalExpensesLog(supabase, setExpenses);
-    return () => unsub();
+    const unsubMedical = subscribeAllMedicalExpensesLog(supabase, setMedical);
+    const unsubCase = subscribeAllCaseExpensesLog(supabase, setCaseExpenses);
+    return () => {
+      unsubMedical();
+      unsubCase();
+    };
   }, [user, loading, supabaseReady]);
 
-  const filtered = useMemo(() => {
+  const rows = useMemo(() => {
+    const merged: LogRow[] = [
+      ...medical.map((expense) => ({ kind: "medical" as const, createdAt: expense.createdAt, expense })),
+      ...caseExpenses.map((expense) => ({ kind: "case" as const, createdAt: expense.createdAt, expense })),
+    ].sort((a, b) => b.createdAt - a.createdAt);
+
     const q = search.trim().toLowerCase();
-    if (!q) return expenses;
-    return expenses.filter((e) =>
-      [
-        e.caseNumber,
-        e.providerName,
-        e.accountNumber,
-        e.documentType,
-        e.payeeName,
-        e.dropboxFilePath,
-      ]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
-    );
-  }, [expenses, search]);
+    return merged.filter((row) => {
+      if (filter === "medical" && row.kind !== "medical") return false;
+      if (filter === "case" && row.kind !== "case") return false;
+      if (!q) return true;
+      const text =
+        row.kind === "medical"
+          ? [row.expense.caseNumber, row.expense.providerName, row.expense.accountNumber, row.expense.documentType].join(" ")
+          : [row.expense.caseNumber, row.expense.vendorName, row.expense.expenseType, row.expense.invoiceNumber, row.expense.description].join(" ");
+      return text.toLowerCase().includes(q);
+    });
+  }, [medical, caseExpenses, search, filter]);
 
   if (!hydrated) return <PageSkeleton />;
 
@@ -82,103 +93,129 @@ export default function ExpenseLogPage() {
     <PageWrapper>
       <PageHeader
         title="Expense Log"
-        subtitle="All medical expenses in the order they were logged, newest first."
+        subtitle="All financial records in the order they were logged — medical expenses and case expenses."
       />
 
       <Card className="mt-6">
         <CardHeader>
-          <div className="max-w-md">
-            <label className="mb-1 block text-xs font-medium text-text-muted">Search</label>
-            <Input
-              placeholder="Case #, provider, account…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[12rem] flex-1">
+              <label className="mb-1 block text-xs font-medium text-text-muted">Search</label>
+              <Input placeholder="Case #, vendor, provider…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-text-muted">Type</label>
+              <Select className="min-w-[9rem]" value={filter} onChange={(e) => setFilter(e.target.value as LogFilter)}>
+                <option value="all">All</option>
+                <option value="medical">Medical</option>
+                <option value="case">Case Expense</option>
+              </Select>
+            </div>
           </div>
         </CardHeader>
         <CardBody className="overflow-x-auto p-0">
-          {filtered.length === 0 ? (
+          {rows.length === 0 ? (
             <div className="px-6 py-12">
-              <EmptyState
-                title="No expenses logged yet"
-                description="Records appear here when medical financial documents are extracted by the filing pipeline."
-              />
+              <EmptyState title="No expenses logged yet" description="Records appear when documents are extracted by the filing pipeline." />
             </div>
           ) : (
-            <table className="w-full min-w-[960px] text-left text-sm">
+            <table className="w-full min-w-[1000px] text-left text-sm">
               <thead>
-                <tr className="border-b border-border bg-surface-alt/60 text-xs uppercase tracking-wide text-text-muted">
+                <tr className="border-b border-border bg-surface-alt/60 text-xs uppercase text-text-muted">
                   <th className="px-4 py-3">Logged</th>
+                  <th className="px-4 py-3">Type</th>
                   <th className="px-4 py-3">Case</th>
-                  <th className="px-4 py-3">Provider</th>
-                  <th className="px-4 py-3">Document</th>
-                  <th className="px-4 py-3 text-right">Balance</th>
+                  <th className="px-4 py-3">Vendor / Provider</th>
+                  <th className="px-4 py-3 text-right">Amount</th>
                   <th className="px-4 py-3">Review</th>
                   <th className="px-4 py-3">Source</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                {filtered.map((expense) => (
-                  <tr key={expense.id} className="hover:bg-surface-alt/40">
-                    <td className="whitespace-nowrap px-4 py-3 tabular-nums text-text-secondary">
-                      {formatLoggedAt(expense.createdAt)}
-                    </td>
-                    <td className="px-4 py-3">
-                      {expense.caseId ? (
-                        <Link
-                          href={`/cases/${expense.caseId}/financials/medical-expenses`}
-                          className="font-medium text-primary hover:underline"
-                        >
-                          #{expense.caseNumber}
-                        </Link>
-                      ) : (
-                        <span className="text-text-muted">#{expense.caseNumber}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-text">{expense.providerName}</td>
-                    <td className="px-4 py-3 text-text-secondary">
-                      {DOCUMENT_TYPE_LABELS[expense.documentType] ?? expense.documentType}
-                    </td>
-                    <td className="px-4 py-3 text-right tabular-nums">
-                      {formatCurrency(expense.currentBalance ?? expense.originalCharges)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-col gap-1">
-                        <Badge variant={reviewBadgeVariant(expense.reviewStatus)}>
-                          {REVIEW_STATUS_LABELS[expense.reviewStatus]}
-                        </Badge>
-                        <Badge variant={paymentBadgeVariant(expense.paymentStatus)} className="w-fit">
-                          {PAYMENT_STATUS_LABELS[expense.paymentStatus]}
-                        </Badge>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3">
-                      {expense.dropboxPermalink ? (
-                        <a
-                          href={expense.dropboxPermalink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                          title={expense.dropboxFilePath ?? undefined}
-                        >
-                          {sourceFileName(expense.dropboxFilePath)}
-                        </a>
-                      ) : (
-                        <span className="text-text-muted">{sourceFileName(expense.dropboxFilePath)}</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {rows.map((row) => {
+                  if (row.kind === "medical") {
+                    const e = row.expense;
+                    const caseLink = e.caseId ? `/cases/${e.caseId}/financials/medical-expenses` : null;
+                    return (
+                      <tr key={`medical-${e.id}`} className="hover:bg-surface-alt/40">
+                        <td className="whitespace-nowrap px-4 py-3 tabular-nums text-text-secondary">
+                          {formatLoggedAt(row.createdAt)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant="primary">Medical</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {caseLink ? (
+                            <Link href={caseLink} className="font-medium text-primary hover:underline">
+                              #{e.caseNumber}
+                            </Link>
+                          ) : (
+                            <span className="text-text-muted">#{e.caseNumber}</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 font-medium">{e.providerName}</td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {formatCurrency(e.currentBalance ?? e.originalCharges)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <Badge variant={reviewBadgeVariant(e.reviewStatus)}>{REVIEW_STATUS_LABELS[e.reviewStatus]}</Badge>
+                        </td>
+                        <td className="px-4 py-3">
+                          {e.dropboxPermalink ? (
+                            <a href={e.dropboxPermalink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                              {sourceFileName(e.dropboxFilePath)}
+                            </a>
+                          ) : (
+                            sourceFileName(e.dropboxFilePath)
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  }
+
+                  const e = row.expense;
+                  const caseLink = e.caseId ? `/cases/${e.caseId}/financials/case-expenses` : null;
+                  return (
+                    <tr key={`case-${e.id}`} className="hover:bg-surface-alt/40">
+                      <td className="whitespace-nowrap px-4 py-3 tabular-nums text-text-secondary">
+                        {formatLoggedAt(row.createdAt)}
+                      </td>
+                      <td className="px-4 py-3">
+                        <Badge variant="default">Case</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        {caseLink ? (
+                          <Link href={caseLink} className="font-medium text-primary hover:underline">
+                            #{e.caseNumber}
+                          </Link>
+                        ) : (
+                          <span className="text-text-muted">#{e.caseNumber}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 font-medium">{e.vendorName}</td>
+                      <td className="px-4 py-3 text-right tabular-nums">{formatCurrency(e.amount)}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={reviewBadgeVariant(e.reviewStatus)}>{CASE_EXPENSE_REVIEW_LABELS[e.reviewStatus]}</Badge>
+                      </td>
+                      <td className="px-4 py-3">
+                        {e.dropboxPermalink ? (
+                          <a href={e.dropboxPermalink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                            {sourceFileName(e.dropboxFilePath)}
+                          </a>
+                        ) : (
+                          sourceFileName(e.dropboxFilePath)
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
         </CardBody>
       </Card>
 
-      <p className="mt-4 text-xs text-text-dim">
-        {filtered.length} record{filtered.length === 1 ? "" : "s"}
-        {search.trim() ? ` matching “${search.trim()}”` : ""}
-      </p>
+      <p className="mt-4 text-xs text-text-dim">{rows.length} record{rows.length === 1 ? "" : "s"}</p>
     </PageWrapper>
   );
 }
