@@ -7,12 +7,15 @@ import { useAuth } from "@/context/AuthContext";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getBrowserSupabase } from "@/lib/supabase/singleton";
 import {
+  markMedicalExpensePaid,
   markMedicalExpenseReviewed,
   subscribeCase,
   subscribeMedicalExpensesForCase,
   updateMedicalExpense,
 } from "@/lib/supabase/repo";
 import { caseDisplayName } from "@/lib/case-display";
+import { isMedicalPaid, needsMedicalReview } from "@/lib/expense-review";
+import { SortHeader, useSortState } from "@/lib/table-sort";
 import type {
   Case,
   MedicalExpense,
@@ -76,9 +79,8 @@ type SortKey =
   | "currentBalance"
   | "finalPayAmount"
   | "paymentStatus"
-  | "reviewStatus";
-
-type SortDir = "asc" | "desc";
+  | "reviewStatus"
+  | "extractionConfidence";
 
 function formatCurrency(value: number | null): string {
   if (value == null || Number.isNaN(value)) return "—";
@@ -114,9 +116,7 @@ function sumField(expenses: MedicalExpense[], key: "originalCharges" | "currentB
 }
 
 function needsReviewCount(expenses: MedicalExpense[]): number {
-  return expenses.filter(
-    (e) => e.reviewStatus === "needs_review" || e.reviewStatus === "pending" || e.reviewStatus === "in_review"
-  ).length;
+  return expenses.filter(needsMedicalReview).length;
 }
 
 export default function MedicalExpensesPage() {
@@ -131,8 +131,7 @@ export default function MedicalExpensesPage() {
   const [search, setSearch] = useState("");
   const [filterReview, setFilterReview] = useState<"all" | "needs_review" | "reviewed">("all");
   const [filterPayment, setFilterPayment] = useState<"all" | MedicalExpensePaymentStatus>("all");
-  const [sortKey, setSortKey] = useState<SortKey>("dateOfService");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const { sortKey, sortDir, toggleSort } = useSortState<SortKey>("dateOfService", "desc");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<MedicalExpense>>({});
   const [saving, setSaving] = useState(false);
@@ -158,9 +157,7 @@ export default function MedicalExpensesPage() {
     let list = expenses;
 
     if (filterReview === "needs_review") {
-      list = list.filter(
-        (e) => e.reviewStatus === "needs_review" || e.reviewStatus === "pending" || e.reviewStatus === "in_review"
-      );
+      list = list.filter(needsMedicalReview);
     } else if (filterReview === "reviewed") {
       list = list.filter((e) => e.reviewStatus === "reviewed" || e.reviewStatus === "approved");
     }
@@ -200,15 +197,16 @@ export default function MedicalExpensesPage() {
     [expenses]
   );
 
-  const toggleSort = useCallback((key: SortKey) => {
-    setSortKey((prev) => {
-      if (prev === key) {
-        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-        return prev;
-      }
-      setSortDir("asc");
-      return key;
-    });
+  const markPaid = useCallback(async (expenseId: string) => {
+    setSaving(true);
+    setErr(null);
+    try {
+      await markMedicalExpensePaid(getBrowserSupabase(), expenseId);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not mark paid");
+    } finally {
+      setSaving(false);
+    }
   }, []);
 
   const startEdit = useCallback((expense: MedicalExpense) => {
@@ -260,20 +258,6 @@ export default function MedicalExpensesPage() {
   }
 
   const caseTitle = caseRecord ? caseDisplayName(caseRecord) : "Case";
-
-  function SortHeader({ label, field }: { label: string; field: SortKey }) {
-    const active = sortKey === field;
-    return (
-      <button
-        type="button"
-        className="inline-flex items-center gap-1 font-medium text-text-secondary hover:text-text"
-        onClick={() => toggleSort(field)}
-      >
-        {label}
-        {active && <span className="text-xs text-text-dim">{sortDir === "asc" ? "↑" : "↓"}</span>}
-      </button>
-    );
-  }
 
   return (
     <PageWrapper>
@@ -357,15 +341,16 @@ export default function MedicalExpensesPage() {
             <table className="w-full min-w-[1100px] text-left text-sm">
               <thead>
                 <tr className="border-b border-border bg-surface-alt/60 text-xs uppercase tracking-wide">
-                  <th className="px-4 py-3"><SortHeader label="Provider" field="providerName" /></th>
-                  <th className="px-4 py-3"><SortHeader label="Document Type" field="documentType" /></th>
-                  <th className="px-4 py-3"><SortHeader label="Account #" field="accountNumber" /></th>
-                  <th className="px-4 py-3"><SortHeader label="Date of Service" field="dateOfService" /></th>
-                  <th className="px-4 py-3 text-right"><SortHeader label="Original" field="originalCharges" /></th>
-                  <th className="px-4 py-3 text-right"><SortHeader label="Balance" field="currentBalance" /></th>
-                  <th className="px-4 py-3 text-right"><SortHeader label="Final Pay" field="finalPayAmount" /></th>
-                  <th className="px-4 py-3"><SortHeader label="Payment" field="paymentStatus" /></th>
-                  <th className="px-4 py-3"><SortHeader label="Review" field="reviewStatus" /></th>
+                  <th className="px-4 py-3"><SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-4 py-3"><SortHeader label="Document Type" field="documentType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-4 py-3"><SortHeader label="Account #" field="accountNumber" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-4 py-3"><SortHeader label="Date of Service" field="dateOfService" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-4 py-3 text-right"><SortHeader label="Original" field="originalCharges" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
+                  <th className="px-4 py-3 text-right"><SortHeader label="Balance" field="currentBalance" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
+                  <th className="px-4 py-3 text-right"><SortHeader label="Final Pay" field="finalPayAmount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
+                  <th className="px-4 py-3"><SortHeader label="Payment" field="paymentStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-4 py-3"><SortHeader label="Review" field="reviewStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-4 py-3"><SortHeader label="Confidence" field="extractionConfidence" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
                   <th className="px-4 py-3">Source</th>
                   <th className="px-4 py-3">Actions</th>
                 </tr>
@@ -375,7 +360,7 @@ export default function MedicalExpensesPage() {
                   const isEditing = editingId === expense.id;
                   const row = isEditing ? { ...expense, ...editDraft } : expense;
                   return (
-                    <tr key={expense.id} className="hover:bg-surface-alt/40">
+                    <tr key={expense.id} className={needsMedicalReview(expense) ? "bg-warning-light/20 hover:bg-warning-light/40" : "hover:bg-surface-alt/40"}>
                       <td className="px-4 py-3">
                         {isEditing ? (
                           <Input value={row.providerName} onChange={(e) => setEditDraft((d) => ({ ...d, providerName: e.target.value }))} />
@@ -412,9 +397,9 @@ export default function MedicalExpensesPage() {
                       </td>
                       <td className="px-4 py-3">
                         <Badge variant={reviewBadgeVariant(row.reviewStatus)}>{REVIEW_STATUS_LABELS[row.reviewStatus]}</Badge>
-                        {row.extractionConfidence != null && (
-                          <span className="mt-1 block text-xs text-text-dim">{formatPercent(row.extractionConfidence)} conf.</span>
-                        )}
+                      </td>
+                      <td className="px-4 py-3 tabular-nums text-text-secondary">
+                        {row.extractionConfidence != null ? formatPercent(row.extractionConfidence) : "—"}
                       </td>
                       <td className="px-4 py-3">
                         {row.dropboxPermalink ? (
@@ -435,8 +420,11 @@ export default function MedicalExpensesPage() {
                           ) : (
                             <>
                               <Button size="sm" variant="secondary" onClick={() => startEdit(expense)}>Edit</Button>
-                              {(expense.reviewStatus === "needs_review" || expense.reviewStatus === "pending" || expense.reviewStatus === "in_review") && (
-                                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void markReviewed(expense.id)}>Mark Reviewed</Button>
+                              {needsMedicalReview(expense) && (
+                                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void markReviewed(expense.id)}>Reviewed</Button>
+                              )}
+                              {!isMedicalPaid(expense) && (
+                                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void markPaid(expense.id)}>Paid</Button>
                               )}
                             </>
                           )}

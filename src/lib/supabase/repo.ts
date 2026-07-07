@@ -252,6 +252,17 @@ export async function markMedicalExpenseReviewed(
   if (error) throw new Error(formatWriteError("Mark reviewed", error));
 }
 
+export async function markMedicalExpensePaid(
+  supabase: SupabaseClient,
+  expenseId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("case_medical_records")
+    .update({ payment_status: "paid", updated_at: Date.now() })
+    .eq("id", expenseId);
+  if (error) throw new Error(formatWriteError("Mark paid", error));
+}
+
 /* ── Case Expenses (vendor / case costs) ─────────────────────────── */
 
 function caseExpenseFromRow(r: Record<string, unknown>): CaseExpense {
@@ -412,4 +423,20 @@ export async function markCaseExpenseReviewed(
     .update({ review_status: "reviewed", updated_at: Date.now() })
     .eq("id", expenseId);
   if (error) throw new Error(formatWriteError("Mark case expense reviewed", error));
+}
+
+export async function markCaseExpensePaid(
+  supabase: SupabaseClient,
+  expenseId: string,
+  amount: number | null
+): Promise<void> {
+  const { error } = await supabase
+    .from("case_expenses")
+    .update({
+      payment_status: "paid",
+      paid_amount: amount,
+      updated_at: Date.now(),
+    })
+    .eq("id", expenseId);
+  if (error) throw new Error(formatWriteError("Mark case expense paid", error));
 }

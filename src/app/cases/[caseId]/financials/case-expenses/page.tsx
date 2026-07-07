@@ -7,6 +7,7 @@ import { useAuth } from "@/context/AuthContext";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getBrowserSupabase } from "@/lib/supabase/singleton";
 import {
+  markCaseExpensePaid,
   markCaseExpenseReviewed,
   subscribeCase,
   subscribeCaseExpensesForCase,
@@ -23,6 +24,8 @@ import {
   reviewBadgeVariant,
   sourceFileName,
 } from "@/lib/case-expense-display";
+import { confidenceVariant, formatConfidence, isCasePaid, needsCaseReview } from "@/lib/expense-review";
+import { compareValues, SortHeader, useSortState } from "@/lib/table-sort";
 import type { Case, CaseExpense, CaseExpenseDocumentType, CaseExpensePaymentStatus } from "@/lib/types";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { useHydrated } from "@/hooks/useHydrated";
@@ -40,6 +43,19 @@ import {
   Spinner,
 } from "@/components/ui";
 
+type SortKey =
+  | "createdAt"
+  | "vendorName"
+  | "expenseType"
+  | "description"
+  | "invoiceNumber"
+  | "invoiceDate"
+  | "amount"
+  | "paymentStatus"
+  | "reviewStatus"
+  | "extractionConfidence"
+  | "documentType";
+
 export default function CaseExpensesPage() {
   const params = useParams();
   const router = useRouter();
@@ -50,6 +66,8 @@ export default function CaseExpensesPage() {
   const [caseRecord, setCaseRecord] = useState<Case | null>(null);
   const [expenses, setExpenses] = useState<CaseExpense[]>([]);
   const [search, setSearch] = useState("");
+  const [filterReview, setFilterReview] = useState<"all" | "needs_review" | "reviewed">("all");
+  const { sortKey, sortDir, toggleSort } = useSortState<SortKey>("createdAt", "desc");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState<Partial<CaseExpense>>({});
   const [saving, setSaving] = useState(false);
@@ -71,23 +89,30 @@ export default function CaseExpensesPage() {
   }, [user, loading, supabaseReady, caseId]);
 
   const filtered = useMemo(() => {
+    let list = expenses;
+    if (filterReview === "needs_review") list = list.filter(needsCaseReview);
+    else if (filterReview === "reviewed") list = list.filter((e) => e.reviewStatus === "reviewed" || e.reviewStatus === "approved");
+
     const q = search.trim().toLowerCase();
-    if (!q) return expenses;
-    return expenses.filter((e) =>
-      [e.vendorName, e.expenseType, e.description, e.invoiceNumber, e.referenceNumber, e.relatedParty]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase()
-        .includes(q)
-    );
-  }, [expenses, search]);
+    if (q) {
+      list = list.filter((e) =>
+        [e.vendorName, e.expenseType, e.description, e.invoiceNumber, e.referenceNumber, e.relatedParty]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase()
+          .includes(q)
+      );
+    }
+
+    return [...list].sort((a, b) => compareValues(a[sortKey], b[sortKey], sortDir));
+  }, [expenses, search, filterReview, sortKey, sortDir]);
 
   const summary = useMemo(
     () => ({
       total: expenses.reduce((a, e) => a + (e.amount ?? 0), 0),
       paid: expenses.reduce((a, e) => a + (e.paidAmount ?? 0), 0),
       count: expenses.length,
-      needsReview: expenses.filter((e) => e.reviewStatus === "needs_review" || e.reviewStatus === "pending").length,
+      needsReview: expenses.filter(needsCaseReview).length,
     }),
     [expenses]
   );
@@ -107,7 +132,39 @@ export default function CaseExpensesPage() {
     }
   }, [editingId, editDraft]);
 
+  const markReviewed = useCallback(async (expenseId: string) => {
+    setSaving(true);
+    setErr(null);
+    try {
+      await markCaseExpenseReviewed(getBrowserSupabase(), expenseId);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not mark reviewed");
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const markPaid = useCallback(async (expense: CaseExpense) => {
+    setSaving(true);
+    setErr(null);
+    try {
+      await markCaseExpensePaid(getBrowserSupabase(), expense.id, expense.amount);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Could not mark paid");
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
   if (!hydrated) return <PageSkeleton />;
+
+  if (!isSupabaseConfigured()) {
+    return (
+      <PageWrapper>
+        <EmptyState title="Supabase not configured" description="Case expenses require database access." />
+      </PageWrapper>
+    );
+  }
 
   const caseTitle = caseRecord ? caseDisplayName(caseRecord) : "Case";
 
@@ -137,7 +194,20 @@ export default function CaseExpensesPage() {
 
       <Card className="mt-6">
         <CardHeader>
-          <Input placeholder="Search vendor, invoice #, description…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="min-w-[12rem] flex-1">
+              <label className="mb-1 block text-xs font-medium text-text-muted">Search</label>
+              <Input placeholder="Vendor, invoice #, description…" value={search} onChange={(e) => setSearch(e.target.value)} />
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-text-muted">Review</label>
+              <Select className="min-w-[9rem]" value={filterReview} onChange={(e) => setFilterReview(e.target.value as typeof filterReview)}>
+                <option value="all">All</option>
+                <option value="needs_review">Needs Review</option>
+                <option value="reviewed">Reviewed</option>
+              </Select>
+            </div>
+          </div>
         </CardHeader>
         <CardBody className="overflow-x-auto p-0">
           {filtered.length === 0 ? (
@@ -148,15 +218,17 @@ export default function CaseExpensesPage() {
             <table className="w-full min-w-[1200px] text-left text-sm">
               <thead>
                 <tr className="border-b border-border bg-surface-alt/60 text-xs uppercase text-text-muted">
-                  <th className="px-3 py-3">Logged</th>
-                  <th className="px-3 py-3">Vendor</th>
-                  <th className="px-3 py-3">Type</th>
-                  <th className="px-3 py-3">Description</th>
-                  <th className="px-3 py-3">Invoice #</th>
-                  <th className="px-3 py-3">Invoice Date</th>
-                  <th className="px-3 py-3 text-right">Amount</th>
-                  <th className="px-3 py-3">Payment</th>
-                  <th className="px-3 py-3">Review</th>
+                  <th className="px-3 py-3"><SortHeader label="Logged" field="createdAt" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3"><SortHeader label="Vendor" field="vendorName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3"><SortHeader label="Type" field="expenseType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3"><SortHeader label="Doc Type" field="documentType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3"><SortHeader label="Description" field="description" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3"><SortHeader label="Invoice #" field="invoiceNumber" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3"><SortHeader label="Invoice Date" field="invoiceDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3 text-right"><SortHeader label="Amount" field="amount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
+                  <th className="px-3 py-3"><SortHeader label="Payment" field="paymentStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3"><SortHeader label="Review" field="reviewStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-3 py-3"><SortHeader label="Confidence" field="extractionConfidence" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
                   <th className="px-3 py-3">Source</th>
                   <th className="px-3 py-3">Actions</th>
                 </tr>
@@ -166,13 +238,25 @@ export default function CaseExpensesPage() {
                   const editing = editingId === expense.id;
                   const row = editing ? { ...expense, ...editDraft } : expense;
                   return (
-                    <tr key={expense.id} className="hover:bg-surface-alt/40">
+                    <tr key={expense.id} className={needsCaseReview(expense) ? "bg-warning-light/20 hover:bg-warning-light/40" : "hover:bg-surface-alt/40"}>
                       <td className="whitespace-nowrap px-3 py-2 text-text-secondary">{formatLoggedAt(row.createdAt)}</td>
                       <td className="px-3 py-2">
                         {editing ? <Input value={row.vendorName} onChange={(e) => setEditDraft((d) => ({ ...d, vendorName: e.target.value }))} /> : <span className="font-medium">{row.vendorName}</span>}
                       </td>
                       <td className="px-3 py-2">{editing ? <Input value={row.expenseType ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, expenseType: e.target.value || null }))} /> : (row.expenseType ?? "—")}</td>
-                      <td className="max-w-[12rem] px-3 py-2 truncate">{editing ? <Input value={row.description ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, description: e.target.value || null }))} /> : (row.description ?? "—")}</td>
+                      <td className="px-3 py-2">
+                        {editing ? (
+                          <Select value={row.documentType ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, documentType: (e.target.value || null) as CaseExpenseDocumentType | null }))}>
+                            <option value="">—</option>
+                            {(Object.keys(CASE_EXPENSE_DOC_LABELS) as CaseExpenseDocumentType[]).map((t) => (
+                              <option key={t} value={t}>{CASE_EXPENSE_DOC_LABELS[t]}</option>
+                            ))}
+                          </Select>
+                        ) : (
+                          row.documentType ? CASE_EXPENSE_DOC_LABELS[row.documentType] : "—"
+                        )}
+                      </td>
+                      <td className="max-w-[12rem] truncate px-3 py-2">{editing ? <Input value={row.description ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, description: e.target.value || null }))} /> : (row.description ?? "—")}</td>
                       <td className="px-3 py-2">{editing ? <Input value={row.invoiceNumber ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, invoiceNumber: e.target.value || null }))} /> : (row.invoiceNumber ?? "—")}</td>
                       <td className="px-3 py-2">{editing ? <Input type="date" value={row.invoiceDate ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, invoiceDate: e.target.value || null }))} /> : (row.invoiceDate ?? "—")}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{editing ? <Input type="number" step="0.01" className="text-right" value={row.amount ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, amount: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.amount)}</td>
@@ -191,6 +275,9 @@ export default function CaseExpensesPage() {
                         <Badge variant={reviewBadgeVariant(row.reviewStatus)}>{CASE_EXPENSE_REVIEW_LABELS[row.reviewStatus]}</Badge>
                       </td>
                       <td className="px-3 py-2">
+                        <Badge variant={confidenceVariant(row.extractionConfidence)}>{formatConfidence(row.extractionConfidence)}</Badge>
+                      </td>
+                      <td className="px-3 py-2">
                         {row.dropboxPermalink ? (
                           <a href={row.dropboxPermalink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">{sourceFileName(row.dropboxFilePath)}</a>
                         ) : (
@@ -207,8 +294,11 @@ export default function CaseExpensesPage() {
                           ) : (
                             <>
                               <Button size="sm" variant="secondary" onClick={() => { setEditingId(expense.id); setEditDraft({ ...expense }); }}>Edit</Button>
-                              {(expense.reviewStatus === "needs_review" || expense.reviewStatus === "pending") && (
-                                <Button size="sm" variant="ghost" onClick={() => void markCaseExpenseReviewed(getBrowserSupabase(), expense.id)}>Mark Reviewed</Button>
+                              {needsCaseReview(expense) && (
+                                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void markReviewed(expense.id)}>Reviewed</Button>
+                              )}
+                              {!isCasePaid(expense) && (
+                                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void markPaid(expense)}>Paid</Button>
                               )}
                             </>
                           )}
