@@ -1,4 +1,5 @@
 import type { SupabaseClient, RealtimeChannel } from "@supabase/supabase-js";
+import { dropboxDisplayLabel, normalizeDropboxPermalink } from "@/lib/dropbox-link";
 import type {
   Case,
   CaseExpense,
@@ -263,6 +264,47 @@ export async function markMedicalExpensePaid(
   if (error) throw new Error(formatWriteError("Mark paid", error));
 }
 
+export type ManualMedicalExpenseInput = {
+  providerName: string;
+  dropboxPermalink: string;
+  fileName?: string | null;
+  documentType?: MedicalExpenseDocumentType;
+  accountNumber?: string | null;
+  dateOfService?: string | null;
+  originalCharges?: number | null;
+  currentBalance?: number | null;
+  finalPayAmount?: number | null;
+};
+
+export async function createMedicalExpense(
+  supabase: SupabaseClient,
+  caseId: string,
+  caseNumber: string,
+  input: ManualMedicalExpenseInput
+): Promise<void> {
+  const permalink = normalizeDropboxPermalink(input.dropboxPermalink);
+  const providerName = input.providerName.trim();
+  if (!providerName) throw new Error("Provider name is required");
+
+  const { error } = await supabase.from("case_medical_records").insert({
+    case_id: caseId,
+    case_number: caseNumber,
+    provider_name: providerName,
+    document_type: input.documentType ?? "medical_bill",
+    payment_status: "unknown",
+    review_status: "needs_review",
+    dropbox_permalink: permalink,
+    dropbox_file_path: dropboxDisplayLabel(permalink, input.fileName),
+    account_number: input.accountNumber?.trim() || null,
+    date_of_service: input.dateOfService || null,
+    original_charges: input.originalCharges ?? null,
+    current_balance: input.currentBalance ?? null,
+    final_pay_amount: input.finalPayAmount ?? null,
+    text_extraction_method: "manual",
+  });
+  if (error) throw new Error(formatWriteError("Create medical expense", error));
+}
+
 /* ── Case Expenses (vendor / case costs) ─────────────────────────── */
 
 function caseExpenseFromRow(r: Record<string, unknown>): CaseExpense {
@@ -439,4 +481,45 @@ export async function markCaseExpensePaid(
     })
     .eq("id", expenseId);
   if (error) throw new Error(formatWriteError("Mark case expense paid", error));
+}
+
+export type ManualCaseExpenseInput = {
+  vendorName: string;
+  dropboxPermalink: string;
+  fileName?: string | null;
+  expenseType?: string | null;
+  description?: string | null;
+  invoiceNumber?: string | null;
+  invoiceDate?: string | null;
+  amount?: number | null;
+  documentType?: CaseExpenseDocumentType | null;
+};
+
+export async function createCaseExpense(
+  supabase: SupabaseClient,
+  caseId: string,
+  caseNumber: string,
+  input: ManualCaseExpenseInput
+): Promise<void> {
+  const permalink = normalizeDropboxPermalink(input.dropboxPermalink);
+  const vendorName = input.vendorName.trim();
+  if (!vendorName) throw new Error("Vendor name is required");
+
+  const { error } = await supabase.from("case_expenses").insert({
+    case_id: caseId,
+    case_number: caseNumber,
+    vendor_name: vendorName,
+    expense_type: input.expenseType?.trim() || null,
+    description: input.description?.trim() || null,
+    invoice_number: input.invoiceNumber?.trim() || null,
+    invoice_date: input.invoiceDate || null,
+    amount: input.amount ?? null,
+    document_type: input.documentType ?? null,
+    payment_status: "pending_review",
+    review_status: "needs_review",
+    dropbox_permalink: permalink,
+    dropbox_file_path: dropboxDisplayLabel(permalink, input.fileName),
+    text_extraction_method: "manual",
+  });
+  if (error) throw new Error(formatWriteError("Create case expense", error));
 }

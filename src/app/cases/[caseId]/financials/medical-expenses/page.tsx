@@ -24,6 +24,8 @@ import type {
   MedicalExpenseReviewStatus,
 } from "@/lib/types";
 import { PageSkeleton } from "@/components/PageSkeleton";
+import { ManualMedicalExpenseForm } from "@/components/ManualExpenseForm";
+import { MedicalProviderSummary } from "@/components/MedicalProviderSummary";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   Badge,
@@ -111,14 +113,6 @@ function paymentBadgeVariant(status: MedicalExpensePaymentStatus): "warning" | "
   return "default";
 }
 
-function sumField(expenses: MedicalExpense[], key: "originalCharges" | "currentBalance" | "finalPayAmount"): number {
-  return expenses.reduce((acc, e) => acc + (e[key] ?? 0), 0);
-}
-
-function needsReviewCount(expenses: MedicalExpense[]): number {
-  return expenses.filter(needsMedicalReview).length;
-}
-
 export default function MedicalExpensesPage() {
   const params = useParams();
   const router = useRouter();
@@ -136,6 +130,7 @@ export default function MedicalExpensesPage() {
   const [editDraft, setEditDraft] = useState<Partial<MedicalExpense>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   useEffect(() => {
     if (!supabaseReady || loading || !user || !caseId) return;
@@ -186,16 +181,7 @@ export default function MedicalExpensesPage() {
     });
   }, [expenses, search, filterReview, filterPayment, sortKey, sortDir]);
 
-  const summary = useMemo(
-    () => ({
-      totalOriginal: sumField(expenses, "originalCharges"),
-      totalBalance: sumField(expenses, "currentBalance"),
-      totalFinalPay: sumField(expenses, "finalPayAmount"),
-      count: expenses.length,
-      needsReview: needsReviewCount(expenses),
-    }),
-    [expenses]
-  );
+  const needsReview = useMemo(() => expenses.filter(needsMedicalReview).length, [expenses]);
 
   const markPaid = useCallback(async (expenseId: string) => {
     setSaving(true);
@@ -282,30 +268,13 @@ export default function MedicalExpensesPage() {
         </div>
       )}
 
-      <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-        {(
-          [
-            ["Original Charges", formatCurrency(summary.totalOriginal)],
-            ["Current Balance", formatCurrency(summary.totalBalance)],
-            ["Final Pay", formatCurrency(summary.totalFinalPay)],
-            ["Expense Count", String(summary.count)],
-            ["Needs Review", String(summary.needsReview)],
-          ] as const
-        ).map(([label, value]) => (
-          <Card key={label}>
-            <CardBody className="py-4">
-              <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{label}</p>
-              <p className={`mt-1 text-xl font-semibold ${label === "Needs Review" ? "text-warning" : "text-text"}`}>
-                {value}
-              </p>
-            </CardBody>
-          </Card>
-        ))}
-      </div>
+      <MedicalProviderSummary expenses={expenses} needsReview={needsReview} />
 
       <Card className="mt-6">
         <CardHeader>
-          <div className="flex flex-wrap items-end gap-3">
+          <h2 className="text-lg font-semibold text-text">Invoices</h2>
+          <p className="mt-1 text-sm text-text-muted">Individual medical bills and statements — source data for the summary above.</p>
+          <div className="mt-4 flex flex-wrap items-end gap-3">
             <div className="min-w-[12rem] flex-1">
               <label className="mb-1 block text-xs font-medium text-text-muted">Search</label>
               <Input placeholder="Provider, account #, document…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -327,8 +296,23 @@ export default function MedicalExpensesPage() {
                 ))}
               </Select>
             </div>
+            <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
+              {showAddForm ? "Cancel" : "Add file"}
+            </Button>
           </div>
         </CardHeader>
+        {showAddForm && caseRecord?.caseNumber && (
+          <div className="px-6 pb-4">
+            <ManualMedicalExpenseForm
+              caseId={caseId}
+              caseNumber={caseRecord.caseNumber}
+              onClose={() => setShowAddForm(false)}
+            />
+          </div>
+        )}
+        {showAddForm && !caseRecord?.caseNumber && (
+          <div className="px-6 pb-4 text-sm text-danger">This case has no case number — cannot add a file yet.</div>
+        )}
         <CardBody className="overflow-x-auto p-0">
           {filtered.length === 0 ? (
             <div className="px-6 py-12">

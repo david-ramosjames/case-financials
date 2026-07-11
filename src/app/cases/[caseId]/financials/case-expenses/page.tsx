@@ -28,6 +28,7 @@ import { confidenceVariant, formatConfidence, isCasePaid, needsCaseReview } from
 import { compareValues, SortHeader, useSortState } from "@/lib/table-sort";
 import type { Case, CaseExpense, CaseExpenseDocumentType, CaseExpensePaymentStatus } from "@/lib/types";
 import { PageSkeleton } from "@/components/PageSkeleton";
+import { ManualCaseExpenseForm } from "@/components/ManualExpenseForm";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   Badge,
@@ -72,6 +73,7 @@ export default function CaseExpensesPage() {
   const [editDraft, setEditDraft] = useState<Partial<CaseExpense>>({});
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
 
   useEffect(() => {
     if (!loading && supabaseReady && !user) router.replace("/login");
@@ -207,8 +209,23 @@ export default function CaseExpensesPage() {
                 <option value="reviewed">Reviewed</option>
               </Select>
             </div>
+            <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
+              {showAddForm ? "Cancel" : "Add file"}
+            </Button>
           </div>
         </CardHeader>
+        {showAddForm && caseRecord?.caseNumber && (
+          <div className="px-6 pb-4">
+            <ManualCaseExpenseForm
+              caseId={caseId}
+              caseNumber={caseRecord.caseNumber}
+              onClose={() => setShowAddForm(false)}
+            />
+          </div>
+        )}
+        {showAddForm && !caseRecord?.caseNumber && (
+          <div className="px-6 pb-4 text-sm text-danger">This case has no case number — cannot add a file yet.</div>
+        )}
         <CardBody className="overflow-x-auto p-0">
           {filtered.length === 0 ? (
             <div className="px-6 py-12">
