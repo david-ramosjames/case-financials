@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/singleton";
 import { saveMedicalTrackerProvider } from "@/lib/supabase/repo";
+import { preferredProviderName, providerNamesMatch } from "@/lib/provider-name-match";
 import { compareValues, SortHeader, useSortState } from "@/lib/table-sort";
 import type { MedicalExpense, MedicalTrackerProvider } from "@/lib/types";
 import { Badge, Button, Card, CardBody, CardHeader, Input, Select, Spinner } from "@/components/ui";
@@ -15,10 +16,6 @@ type SortKey =
   | "medicalReceivedDate"
   | "billingRequestedDate"
   | "billingReceivedDate";
-
-function normalizeProvider(name: string): string {
-  return name.trim().toLowerCase();
-}
 
 function blankProvider(
   caseId: string,
@@ -43,22 +40,75 @@ function blankProvider(
   };
 }
 
+function trackerFilledScore(row: MedicalTrackerProvider): number {
+  let score = 0;
+  if (row.hasLop === true) score += 3;
+  if (row.hasLop === false) score += 1;
+  if (row.treatmentFinishedDate) score += 1;
+  if (row.medicalRequestedDate) score += 1;
+  if (row.medicalReceivedDate) score += 1;
+  if (row.billingRequestedDate) score += 1;
+  if (row.billingReceivedDate) score += 1;
+  if (row.id) score += 2;
+  score += Math.min(row.providerName.trim().length, 40) / 40;
+  return score;
+}
+
+function mergeProviderRows(a: MedicalTrackerProvider, b: MedicalTrackerProvider): MedicalTrackerProvider {
+  const preferA = trackerFilledScore(a) >= trackerFilledScore(b);
+  const base = preferA ? a : b;
+  const other = preferA ? b : a;
+  return {
+    ...base,
+    providerName: preferredProviderName(a.providerName, b.providerName),
+    providerId: base.providerId ?? other.providerId,
+    hasLop:
+      a.hasLop === true || b.hasLop === true
+        ? true
+        : a.hasLop === false || b.hasLop === false
+          ? false
+          : null,
+    treatmentFinishedDate: base.treatmentFinishedDate ?? other.treatmentFinishedDate,
+    medicalRequestedDate: base.medicalRequestedDate ?? other.medicalRequestedDate,
+    medicalReceivedDate: base.medicalReceivedDate ?? other.medicalReceivedDate,
+    billingRequestedDate: base.billingRequestedDate ?? other.billingRequestedDate,
+    billingReceivedDate: base.billingReceivedDate ?? other.billingReceivedDate,
+  };
+}
+
 function mergeProviders(
   caseId: string,
   caseNumber: string,
   tracked: MedicalTrackerProvider[],
   expenses: MedicalExpense[]
 ): MedicalTrackerProvider[] {
-  const merged = new Map(tracked.map((row) => [normalizeProvider(row.providerName), row]));
-  for (const expense of expenses) {
-    const key = normalizeProvider(expense.providerName);
-    if (!key || merged.has(key)) continue;
-    merged.set(
-      key,
-      blankProvider(caseId, caseNumber, expense.providerName, expense.providerId)
+  const merged: MedicalTrackerProvider[] = [];
+
+  for (const row of tracked) {
+    const idx = merged.findIndex((existing) =>
+      providerNamesMatch(existing.providerName, row.providerName)
     );
+    if (idx >= 0) merged[idx] = mergeProviderRows(merged[idx]!, row);
+    else merged.push(row);
   }
-  return [...merged.values()];
+
+  for (const expense of expenses) {
+    const name = expense.providerName.trim();
+    if (!name) continue;
+    const idx = merged.findIndex((existing) => providerNamesMatch(existing.providerName, name));
+    if (idx >= 0) {
+      const existing = merged[idx]!;
+      merged[idx] = {
+        ...existing,
+        providerName: preferredProviderName(existing.providerName, name),
+        providerId: existing.providerId ?? expense.providerId,
+      };
+      continue;
+    }
+    merged.push(blankProvider(caseId, caseNumber, name, expense.providerId));
+  }
+
+  return merged;
 }
 
 function formatDate(value: string | null): string {
@@ -93,7 +143,7 @@ export function MedicalTracker({
   const [error, setError] = useState<string | null>(null);
 
   const beginEdit = (row: MedicalTrackerProvider) => {
-    setEditingKey(row.id ?? normalizeProvider(row.providerName));
+    setEditingKey(row.id ?? row.providerName.trim().toLowerCase());
     setDraft({ ...row });
     setError(null);
   };
@@ -213,7 +263,7 @@ export function MedicalTracker({
           </thead>
           <tbody className="divide-y divide-border">
             {editingKey === "__new__" && draft && renderRow(draft, "__new__")}
-            {sorted.map((row) => renderRow(row, row.id ?? normalizeProvider(row.providerName)))}
+            {sorted.map((row) => renderRow(row, row.id ?? row.providerName.trim().toLowerCase()))}
             {!sorted.length && editingKey !== "__new__" && (
               <tr>
                 <td colSpan={8} className="px-6 py-10 text-center text-text-muted">
