@@ -10,6 +10,7 @@ import type {
   MedicalExpenseDocumentType,
   MedicalExpensePaymentStatus,
   MedicalExpenseReviewStatus,
+  MedicalTrackerProvider,
 } from "@/lib/types";
 
 type Unsubscribe = () => void;
@@ -200,6 +201,93 @@ export function subscribeMedicalExpensesForCase(
     )
     .subscribe();
   return () => void supabase.removeChannel(ch);
+}
+
+function medicalTrackerProviderFromRow(r: Record<string, unknown>): MedicalTrackerProvider {
+  return {
+    id: r.id as string,
+    caseId: r.case_id as string,
+    caseNumber: r.case_number as string,
+    providerId: (r.provider_id as string) ?? null,
+    providerName: r.provider_name as string,
+    hasLop: r.has_lop == null ? null : Boolean(r.has_lop),
+    treatmentFinishedDate: (r.treatment_finished_date as string) ?? null,
+    medicalRequestedDate: (r.medical_requested_date as string) ?? null,
+    medicalReceivedDate: (r.medical_received_date as string) ?? null,
+    billingRequestedDate: (r.billing_requested_date as string) ?? null,
+    billingReceivedDate: (r.billing_received_date as string) ?? null,
+    createdAt: parseTimestamp(r.created_at),
+    updatedAt: parseTimestamp(r.updated_at),
+  };
+}
+
+export async function fetchMedicalTrackerForCase(
+  supabase: SupabaseClient,
+  caseId: string
+): Promise<MedicalTrackerProvider[]> {
+  const { data, error } = await supabase
+    .from("case_medical_tracker")
+    .select("*")
+    .eq("case_id", caseId)
+    .order("provider_name");
+  if (error) throw error;
+  return (data ?? []).map((r) => medicalTrackerProviderFromRow(r as Record<string, unknown>));
+}
+
+export function subscribeMedicalTrackerForCase(
+  supabase: SupabaseClient,
+  caseId: string,
+  cb: (providers: MedicalTrackerProvider[]) => void
+): Unsubscribe {
+  const load = async () => {
+    try {
+      cb(await fetchMedicalTrackerForCase(supabase, caseId));
+    } catch (e) {
+      console.warn("[subscribeMedicalTrackerForCase]", e);
+      cb([]);
+    }
+  };
+  void load();
+  const ch = supabase
+    .channel(`medical-tracker:${caseId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "case_medical_tracker", filter: `case_id=eq.${caseId}` },
+      () => void load()
+    )
+    .subscribe();
+  return () => void supabase.removeChannel(ch);
+}
+
+export async function saveMedicalTrackerProvider(
+  supabase: SupabaseClient,
+  provider: Pick<MedicalTrackerProvider, "caseId" | "caseNumber" | "providerName"> &
+    Partial<MedicalTrackerProvider>
+): Promise<void> {
+  const providerName = provider.providerName.trim();
+  if (!providerName) throw new Error("Provider name is required");
+
+  const row = {
+    case_id: provider.caseId,
+    case_number: provider.caseNumber,
+    provider_id: provider.providerId ?? null,
+    provider_name: providerName,
+    has_lop: provider.hasLop ?? null,
+    treatment_finished_date: provider.treatmentFinishedDate || null,
+    medical_requested_date: provider.medicalRequestedDate || null,
+    medical_received_date: provider.medicalReceivedDate || null,
+    billing_requested_date: provider.billingRequestedDate || null,
+    billing_received_date: provider.billingReceivedDate || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const query = provider.id
+    ? supabase.from("case_medical_tracker").update(row).eq("id", provider.id)
+    : supabase
+        .from("case_medical_tracker")
+        .upsert(row, { onConflict: "case_id,normalized_provider_name" });
+  const { error } = await query;
+  if (error) throw new Error(formatWriteError("Save medical tracker", error));
 }
 
 export function subscribeAllMedicalExpensesLog(

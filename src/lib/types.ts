@@ -62,6 +62,22 @@ export interface MedicalExpense {
   updatedAt: number;
 }
 
+export interface MedicalTrackerProvider {
+  id: string | null;
+  caseId: string;
+  caseNumber: string;
+  providerId: string | null;
+  providerName: string;
+  hasLop: boolean | null;
+  treatmentFinishedDate: string | null;
+  medicalRequestedDate: string | null;
+  medicalReceivedDate: string | null;
+  billingRequestedDate: string | null;
+  billingReceivedDate: string | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export type CaseExpenseDocumentType =
   | "invoice"
   | "receipt"

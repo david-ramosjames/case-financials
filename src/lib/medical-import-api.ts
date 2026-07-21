@@ -1,0 +1,79 @@
+import { getBrowserSupabase } from "@/lib/supabase/singleton";
+
+export interface MedicalImportFolderPreview {
+  name: string;
+  path: string;
+  lopFiles: number;
+  medicalFiles: number;
+  providerFolders: string[];
+}
+
+export interface MedicalImportJob {
+  id: string;
+  caseId: string;
+  caseNumber: string;
+  dropboxCasePath: string;
+  status: "queued" | "running" | "completed" | "failed";
+  totalFiles: number;
+  processedFiles: number;
+  importedRecords: number;
+  skippedFiles: number;
+  failedFiles: number;
+  errorMessage: string | null;
+  createdAt: string;
+  completedAt: string | null;
+}
+
+function apiBase(): string {
+  const value = process.env.NEXT_PUBLIC_FILE_SORTER_URL?.trim().replace(/\/+$/, "");
+  if (!value) throw new Error("Dropbox import is not configured");
+  return value;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const { data } = await getBrowserSupabase().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Sign in again to use Dropbox import");
+
+  const response = await fetch(`${apiBase()}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+      ...init?.headers,
+    },
+  });
+  const body = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) throw new Error(body.error ?? `Import request failed (${response.status})`);
+  return body;
+}
+
+export function isMedicalImportConfigured(): boolean {
+  return Boolean(process.env.NEXT_PUBLIC_FILE_SORTER_URL?.trim());
+}
+
+export async function previewMedicalImportFolders(
+  caseNumber: string
+): Promise<MedicalImportFolderPreview[]> {
+  const result = await request<{ folders: MedicalImportFolderPreview[] }>(
+    `/medical-import/folders?caseNumber=${encodeURIComponent(caseNumber)}`
+  );
+  return result.folders;
+}
+
+export async function launchMedicalImport(opts: {
+  caseId: string;
+  caseNumber: string;
+  folderPath: string;
+}): Promise<MedicalImportJob> {
+  const result = await request<{ job: MedicalImportJob }>("/medical-import/jobs", {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+  return result.job;
+}
+
+export async function fetchMedicalImportJob(jobId: string): Promise<MedicalImportJob> {
+  const result = await request<{ job: MedicalImportJob }>(`/medical-import/jobs/${jobId}`);
+  return result.job;
+}

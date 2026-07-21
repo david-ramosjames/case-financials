@@ -44,18 +44,21 @@ Future: `/cases/[caseId]/financials/*` for Case Expenses, Liens, Subrogation, et
 3. Set environment variables:
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - `NEXT_PUBLIC_SITE_URL` (your production URL, e.g. `https://financials.yourfirm.com`)
+   - `NEXT_PUBLIC_SITE_URL` (`https://rjl-case-financials.vercel.app`)
+   - `NEXT_PUBLIC_FILE_SORTER_URL` (`https://email-attachment-sorter-production.up.railway.app`)
 4. Add `https://<your-domain>/auth/callback` to Supabase → Authentication → Redirect URLs.
 
 If the build succeeds but deploy fails with *“No Output Directory named public found”*, the project is misconfigured as a static site — clear the Output Directory override in Vercel → Project Settings → Build & Development Settings.
 
 ## Deploy checklist
 
-1. Run `migrations/001` through `005` in **client Supabase** (SQL editor)
+1. Run `migrations/001` through `007` in **client Supabase** (SQL editor)
    - `005_case_expenses.sql` — vendor/case cost table (Expenses folder)
+   - `006_case_medical_tracker.sql` — provider LOP and medical/billing records tracker
+   - `007_medical_import_jobs.sql` — silent Dropbox import progress and results
    - If capture logs *Could not find the dropbox_permalink column*, run `004b_dropbox_permalink_column.sql` (or full `004`)
-2. Deploy **file-sorter** with `MEDICAL_RECORDS_CAPTURE_ENABLED=true` and `CASE_EXPENSES_CAPTURE_ENABLED=true` (default on when client Supabase is configured)
-3. Deploy **case-financials** with Supabase env vars + production `NEXT_PUBLIC_SITE_URL`
+2. Deploy **file-sorter** with `MEDICAL_RECORDS_CAPTURE_ENABLED=true`, `CASE_EXPENSES_CAPTURE_ENABLED=true`, and `CASE_FINANCIALS_ORIGIN`
+3. Deploy **case-financials** with Supabase env vars, `NEXT_PUBLIC_SITE_URL`, and `NEXT_PUBLIC_FILE_SORTER_URL`
 4. Add production `/auth/callback` to Supabase redirect URLs
 
 ## Related repos

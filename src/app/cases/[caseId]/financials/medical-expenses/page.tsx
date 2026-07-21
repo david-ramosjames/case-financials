@@ -11,6 +11,7 @@ import {
   markMedicalExpenseReviewed,
   subscribeCase,
   subscribeMedicalExpensesForCase,
+  subscribeMedicalTrackerForCase,
   updateMedicalExpense,
 } from "@/lib/supabase/repo";
 import { caseDisplayName } from "@/lib/case-display";
@@ -22,10 +23,13 @@ import type {
   MedicalExpenseDocumentType,
   MedicalExpensePaymentStatus,
   MedicalExpenseReviewStatus,
+  MedicalTrackerProvider,
 } from "@/lib/types";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { ManualMedicalExpenseForm } from "@/components/ManualExpenseForm";
 import { MedicalProviderSummary } from "@/components/MedicalProviderSummary";
+import { MedicalTracker } from "@/components/MedicalTracker";
+import { MedicalFolderImport } from "@/components/MedicalFolderImport";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   Badge,
@@ -122,6 +126,7 @@ export default function MedicalExpensesPage() {
 
   const [caseRecord, setCaseRecord] = useState<Case | null>(null);
   const [expenses, setExpenses] = useState<MedicalExpense[]>([]);
+  const [trackedProviders, setTrackedProviders] = useState<MedicalTrackerProvider[]>([]);
   const [search, setSearch] = useState("");
   const [filterReview, setFilterReview] = useState<"all" | "needs_review" | "reviewed">("all");
   const [filterPayment, setFilterPayment] = useState<"all" | MedicalExpensePaymentStatus>("all");
@@ -137,9 +142,11 @@ export default function MedicalExpensesPage() {
     const supabase = getBrowserSupabase();
     const unsubCase = subscribeCase(supabase, caseId, setCaseRecord);
     const unsubExpenses = subscribeMedicalExpensesForCase(supabase, caseId, setExpenses);
+    const unsubTracker = subscribeMedicalTrackerForCase(supabase, caseId, setTrackedProviders);
     return () => {
       unsubCase();
       unsubExpenses();
+      unsubTracker();
     };
   }, [user, loading, supabaseReady, caseId]);
 
@@ -259,13 +266,32 @@ export default function MedicalExpensesPage() {
 
       <PageHeader
         title="Medical Expenses"
-        subtitle="AI-extracted billing records from filed documents. Review and approve before use."
+        subtitle="Track providers and records first, then review financial details from filed documents."
       />
 
       {err && (
         <div className="mt-4 rounded-lg border border-danger/30 bg-danger-light px-4 py-3 text-sm text-danger">
           {err}
         </div>
+      )}
+
+      {caseRecord?.caseNumber && (
+        <MedicalFolderImport caseId={caseId} caseNumber={caseRecord.caseNumber} />
+      )}
+
+      {caseRecord?.caseNumber ? (
+        <MedicalTracker
+          caseId={caseId}
+          caseNumber={caseRecord.caseNumber}
+          trackedProviders={trackedProviders}
+          expenses={expenses}
+        />
+      ) : (
+        <Card className="mt-6 border-warning/30">
+          <CardBody className="text-sm text-warning">
+            Add a case number before using the Medical Tracker.
+          </CardBody>
+        </Card>
       )}
 
       <MedicalProviderSummary expenses={expenses} needsReview={needsReview} />
