@@ -178,6 +178,9 @@ export function MedicalFolderImport({
             {job.status === "failed" && (
               <p className="text-sm text-danger">{job.errorMessage ?? "Import failed"}</p>
             )}
+            {job.status === "completed" && job.failedFiles > 0 && job.errorMessage && (
+              <p className="text-sm text-danger whitespace-pre-wrap break-words">{job.errorMessage}</p>
+            )}
             {!active && (
               <Button
                 size="sm"
