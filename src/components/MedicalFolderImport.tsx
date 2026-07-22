@@ -41,6 +41,14 @@ export function MedicalFolderImport({
     return () => window.clearInterval(timer);
   }, [job]);
 
+  useEffect(() => {
+    if (job?.status !== "completed") return;
+    const timer = window.setTimeout(() => {
+      window.location.reload();
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [job?.status]);
+
   const loadFolders = async () => {
     setOpen(true);
     setLoading(true);
@@ -172,7 +180,7 @@ export function MedicalFolderImport({
             </div>
             {job.status === "completed" && (
               <p className="text-sm text-success">
-                Import complete. New providers and invoices are marked for review below.
+                Import complete. Refreshing page so new providers and invoices appear…
               </p>
             )}
             {job.status === "failed" && (

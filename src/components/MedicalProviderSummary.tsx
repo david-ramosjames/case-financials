@@ -43,11 +43,11 @@ export function MedicalProviderSummary({
           <SummaryTotalsBox totals={totals} />
         </div>
       </CardHeader>
-      <CardBody className="overflow-x-auto p-0">
+      <CardBody className="overflow-hidden p-0">
         {sorted.length === 0 ? (
           <p className="px-6 py-8 text-sm text-text-muted">No medical providers yet — summary appears when invoices are logged.</p>
         ) : (
-          <table className="w-full min-w-[640px] text-left text-sm">
+          <table className="w-full table-fixed text-left text-sm">
             <thead>
               <tr className="border-b border-border bg-surface-alt/60 text-xs uppercase text-text-muted">
                 <th className="px-4 py-3"><SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>

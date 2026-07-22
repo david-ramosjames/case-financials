@@ -301,6 +301,14 @@ export async function saveMedicalTrackerProvider(
   if (error) throw new Error(formatWriteError("Save medical tracker", error));
 }
 
+export async function deleteMedicalTrackerProvider(
+  supabase: SupabaseClient,
+  providerId: string
+): Promise<void> {
+  const { error } = await supabase.from("case_medical_tracker").delete().eq("id", providerId);
+  if (error) throw new Error(formatWriteError("Delete medical tracker", error));
+}
+
 export function subscribeAllMedicalExpensesLog(
   supabase: SupabaseClient,
   cb: (expenses: MedicalExpense[]) => void

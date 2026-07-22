@@ -339,7 +339,7 @@ export default function MedicalExpensesPage() {
         {showAddForm && !caseRecord?.caseNumber && (
           <div className="px-6 pb-4 text-sm text-danger">This case has no case number — cannot add a file yet.</div>
         )}
-        <CardBody className="overflow-x-auto p-0">
+        <CardBody className="overflow-hidden p-0">
           {filtered.length === 0 ? (
             <div className="px-6 py-12">
               <EmptyState
@@ -348,21 +348,35 @@ export default function MedicalExpensesPage() {
               />
             </div>
           ) : (
-            <table className="w-full min-w-[1100px] text-left text-sm">
+            <table className="w-full table-fixed text-left text-sm">
+              <colgroup>
+                <col className="w-[14%]" />
+                <col className="w-[11%]" />
+                <col className="w-[9%]" />
+                <col className="w-[9%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[8%]" />
+                <col className="w-[9%]" />
+                <col className="w-[8%]" />
+                <col className="w-[6%]" />
+                <col className="w-[5%]" />
+                <col className="w-[5%]" />
+              </colgroup>
               <thead>
-                <tr className="border-b border-border bg-surface-alt/60 text-xs uppercase tracking-wide">
-                  <th className="px-4 py-3"><SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-4 py-3"><SortHeader label="Document Type" field="documentType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-4 py-3"><SortHeader label="Account #" field="accountNumber" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-4 py-3"><SortHeader label="Date of Service" field="dateOfService" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-4 py-3 text-right"><SortHeader label="Original" field="originalCharges" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
-                  <th className="px-4 py-3 text-right"><SortHeader label="Balance" field="currentBalance" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
-                  <th className="px-4 py-3 text-right"><SortHeader label="Final Pay" field="finalPayAmount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
-                  <th className="px-4 py-3"><SortHeader label="Payment" field="paymentStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-4 py-3"><SortHeader label="Review" field="reviewStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-4 py-3"><SortHeader label="Confidence" field="extractionConfidence" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-4 py-3">Source</th>
-                  <th className="px-4 py-3">Actions</th>
+                <tr className="border-b border-border bg-surface-alt/60 text-[11px] uppercase tracking-wide">
+                  <th className="px-2 py-2"><SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Type" field="documentType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Acct #" field="accountNumber" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="DOS" field="dateOfService" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-2 py-2 text-right"><SortHeader label="Original" field="originalCharges" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
+                  <th className="px-2 py-2 text-right"><SortHeader label="Balance" field="currentBalance" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
+                  <th className="px-2 py-2 text-right"><SortHeader label="Final" field="finalPayAmount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
+                  <th className="px-2 py-2"><SortHeader label="Payment" field="paymentStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Review" field="reviewStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-2 py-2"><SortHeader label="Conf" field="extractionConfidence" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
+                  <th className="px-2 py-2">Src</th>
+                  <th className="px-2 py-2"> </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -371,32 +385,34 @@ export default function MedicalExpensesPage() {
                   const row = isEditing ? { ...expense, ...editDraft } : expense;
                   return (
                     <tr key={expense.id} className={needsMedicalReview(expense) ? "bg-warning-light/20 hover:bg-warning-light/40" : "hover:bg-surface-alt/40"}>
-                      <td className="px-4 py-3">
+                      <td className="min-w-0 px-2 py-2">
                         {isEditing ? (
-                          <Input value={row.providerName} onChange={(e) => setEditDraft((d) => ({ ...d, providerName: e.target.value }))} />
+                          <Input className="px-1.5 py-1 text-xs" value={row.providerName} onChange={(e) => setEditDraft((d) => ({ ...d, providerName: e.target.value }))} />
                         ) : (
-                          <span className="font-medium">{row.providerName}</span>
+                          <span className="block truncate font-medium" title={row.providerName}>{row.providerName}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="min-w-0 px-2 py-2">
                         {isEditing ? (
-                          <Select value={row.documentType} onChange={(e) => setEditDraft((d) => ({ ...d, documentType: e.target.value as MedicalExpenseDocumentType }))}>
+                          <Select className="px-1.5 py-1 text-xs" value={row.documentType} onChange={(e) => setEditDraft((d) => ({ ...d, documentType: e.target.value as MedicalExpenseDocumentType }))}>
                             {(Object.keys(DOCUMENT_TYPE_LABELS) as MedicalExpenseDocumentType[]).map((t) => (
                               <option key={t} value={t}>{DOCUMENT_TYPE_LABELS[t]}</option>
                             ))}
                           </Select>
                         ) : (
-                          DOCUMENT_TYPE_LABELS[row.documentType] ?? row.documentType
+                          <span className="block truncate" title={DOCUMENT_TYPE_LABELS[row.documentType] ?? row.documentType}>
+                            {DOCUMENT_TYPE_LABELS[row.documentType] ?? row.documentType}
+                          </span>
                         )}
                       </td>
-                      <td className="px-4 py-3">{isEditing ? <Input value={row.accountNumber ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, accountNumber: e.target.value || null }))} /> : row.accountNumber ?? "—"}</td>
-                      <td className="px-4 py-3">{isEditing ? <Input type="date" value={row.dateOfService ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, dateOfService: e.target.value || null }))} /> : row.dateOfService ?? "—"}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="text-right" value={row.originalCharges ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, originalCharges: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.originalCharges)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="text-right" value={row.currentBalance ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, currentBalance: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.currentBalance)}</td>
-                      <td className="px-4 py-3 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="text-right" value={row.finalPayAmount ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, finalPayAmount: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.finalPayAmount)}</td>
-                      <td className="px-4 py-3">
+                      <td className="min-w-0 truncate px-2 py-2" title={row.accountNumber ?? undefined}>{isEditing ? <Input className="px-1.5 py-1 text-xs" value={row.accountNumber ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, accountNumber: e.target.value || null }))} /> : row.accountNumber ?? "—"}</td>
+                      <td className="px-2 py-2">{isEditing ? <Input type="date" className="px-1 py-1 text-xs" value={row.dateOfService ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, dateOfService: e.target.value || null }))} /> : row.dateOfService ?? "—"}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="px-1.5 py-1 text-right text-xs" value={row.originalCharges ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, originalCharges: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.originalCharges)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="px-1.5 py-1 text-right text-xs" value={row.currentBalance ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, currentBalance: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.currentBalance)}</td>
+                      <td className="px-2 py-2 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="px-1.5 py-1 text-right text-xs" value={row.finalPayAmount ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, finalPayAmount: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.finalPayAmount)}</td>
+                      <td className="min-w-0 px-2 py-2">
                         {isEditing ? (
-                          <Select value={row.paymentStatus} onChange={(e) => setEditDraft((d) => ({ ...d, paymentStatus: e.target.value as MedicalExpensePaymentStatus }))}>
+                          <Select className="px-1.5 py-1 text-xs" value={row.paymentStatus} onChange={(e) => setEditDraft((d) => ({ ...d, paymentStatus: e.target.value as MedicalExpensePaymentStatus }))}>
                             {(Object.keys(PAYMENT_STATUS_LABELS) as MedicalExpensePaymentStatus[]).map((s) => (
                               <option key={s} value={s}>{PAYMENT_STATUS_LABELS[s]}</option>
                             ))}
@@ -405,36 +421,36 @@ export default function MedicalExpensesPage() {
                           <Badge variant={paymentBadgeVariant(row.paymentStatus)}>{PAYMENT_STATUS_LABELS[row.paymentStatus]}</Badge>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="min-w-0 px-2 py-2">
                         <Badge variant={reviewBadgeVariant(row.reviewStatus)}>{REVIEW_STATUS_LABELS[row.reviewStatus]}</Badge>
                       </td>
-                      <td className="px-4 py-3 tabular-nums text-text-secondary">
+                      <td className="px-2 py-2 tabular-nums text-text-secondary">
                         {row.extractionConfidence != null ? formatPercent(row.extractionConfidence) : "—"}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="min-w-0 px-2 py-2">
                         {row.dropboxPermalink ? (
-                          <a href={row.dropboxPermalink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline" title={row.dropboxFilePath ?? undefined}>
+                          <a href={row.dropboxPermalink} target="_blank" rel="noopener noreferrer" className="block truncate text-primary hover:underline" title={row.dropboxFilePath ?? undefined}>
                             {sourceFileName(row.dropboxFilePath)}
                           </a>
                         ) : (
-                          sourceFileName(row.dropboxFilePath)
+                          <span className="block truncate" title={row.dropboxFilePath ?? undefined}>{sourceFileName(row.dropboxFilePath)}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex flex-wrap gap-1">
+                      <td className="px-1 py-2">
+                        <div className="flex flex-col items-stretch gap-1">
                           {isEditing ? (
                             <>
-                              <Button size="sm" disabled={saving} onClick={() => void saveEdit()}>{saving ? <Spinner className="h-4 w-4" /> : "Save"}</Button>
-                              <Button size="sm" variant="ghost" disabled={saving} onClick={cancelEdit}>Cancel</Button>
+                              <Button size="sm" className="px-2" disabled={saving} onClick={() => void saveEdit()}>{saving ? <Spinner className="h-4 w-4" /> : "Save"}</Button>
+                              <Button size="sm" variant="ghost" className="px-2" disabled={saving} onClick={cancelEdit}>Cancel</Button>
                             </>
                           ) : (
                             <>
-                              <Button size="sm" variant="secondary" onClick={() => startEdit(expense)}>Edit</Button>
+                              <Button size="sm" variant="secondary" className="px-2" onClick={() => startEdit(expense)}>Edit</Button>
                               {needsMedicalReview(expense) && (
-                                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void markReviewed(expense.id)}>Reviewed</Button>
+                                <Button size="sm" variant="ghost" className="px-2" disabled={saving} onClick={() => void markReviewed(expense.id)}>Reviewed</Button>
                               )}
                               {!isMedicalPaid(expense) && (
-                                <Button size="sm" variant="ghost" disabled={saving} onClick={() => void markPaid(expense.id)}>Paid</Button>
+                                <Button size="sm" variant="ghost" className="px-2" disabled={saving} onClick={() => void markPaid(expense.id)}>Paid</Button>
                               )}
                             </>
                           )}

@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/singleton";
-import { saveMedicalTrackerProvider } from "@/lib/supabase/repo";
+import {
+  deleteMedicalTrackerProvider,
+  saveMedicalTrackerProvider,
+} from "@/lib/supabase/repo";
 import { preferredProviderName, providerNamesMatch } from "@/lib/provider-name-match";
 import { compareValues, SortHeader, useSortState } from "@/lib/table-sort";
 import type { MedicalExpense, MedicalTrackerProvider } from "@/lib/types";
@@ -193,32 +196,52 @@ export function MedicalTracker({
     }
   };
 
+  const deleteProvider = async (row: MedicalTrackerProvider, key: string) => {
+    if (!row.id) {
+      setError("This provider only exists from invoices — delete those invoice rows instead.");
+      return;
+    }
+    if (!window.confirm(`Delete tracker row for ${row.providerName}?`)) return;
+    setSavingKey(key);
+    setError(null);
+    try {
+      await deleteMedicalTrackerProvider(getBrowserSupabase(), row.id);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete provider");
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
   const renderRow = (row: MedicalTrackerProvider, key: string) => {
     const saving = savingKey === key;
     return (
       <tr key={key} className={row.hasLop === true ? "bg-warning-light/25" : "hover:bg-surface-alt/40"}>
-        <td className="px-3 py-2">
-          <span className="font-medium text-text">{row.providerName}</span>
+        <td className="min-w-0 px-2 py-2 align-top">
+          <div className="truncate font-medium text-text" title={row.providerName}>
+            {row.providerName}
+          </div>
           {row.lopFiles.length > 0 && (
-            <div className="mt-1 flex flex-col items-start gap-0.5">
+            <div className="mt-1 space-y-0.5">
               {row.lopFiles.map((file, index) => (
                 <a
                   key={file.fileId || file.path || `${file.url}-${index}`}
                   href={file.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="max-w-64 truncate text-xs text-primary hover:underline"
+                  className="block truncate text-[11px] leading-tight text-primary hover:underline"
                   title={file.name}
                 >
-                  LOP: {file.name}
+                  {file.name}
                 </a>
               ))}
             </div>
           )}
         </td>
-        <td className="px-3 py-2">
+        <td className="px-1.5 py-2 align-top">
           <Select
             aria-label={`LOP status for ${row.providerName}`}
+            className="px-1.5 py-1 text-xs"
             disabled={saving}
             value={row.hasLop == null ? "" : row.hasLop ? "yes" : "no"}
             onChange={(e) => {
@@ -226,18 +249,56 @@ export function MedicalTracker({
               void saveProvider({ ...row, hasLop }, key);
             }}
           >
-            <option value="">Unknown</option>
+            <option value="">?</option>
             <option value="yes">Yes</option>
             <option value="no">No</option>
           </Select>
         </td>
-        <DateCell disabled={saving} value={row.treatmentFinishedDate} onChange={(v) => void saveProvider({ ...row, treatmentFinishedDate: v }, key)} />
-        <DateCell disabled={saving} value={row.medicalRequestedDate} onChange={(v) => void saveProvider({ ...row, medicalRequestedDate: v }, key)} />
-        <DateCell disabled={saving} value={row.medicalReceivedDate} onChange={(v) => void saveProvider({ ...row, medicalReceivedDate: v }, key)} />
-        <DateCell disabled={saving} value={row.billingRequestedDate} onChange={(v) => void saveProvider({ ...row, billingRequestedDate: v }, key)} />
-        <DateCell disabled={saving} value={row.billingReceivedDate} onChange={(v) => void saveProvider({ ...row, billingReceivedDate: v }, key)} />
-        <td className="px-3 py-2">
-          {saving && <Spinner className="h-4 w-4" />}
+        <DateCell
+          label="Treatment finished"
+          disabled={saving}
+          value={row.treatmentFinishedDate}
+          onChange={(v) => void saveProvider({ ...row, treatmentFinishedDate: v }, key)}
+        />
+        <DateCell
+          label="Medical requested"
+          disabled={saving}
+          value={row.medicalRequestedDate}
+          onChange={(v) => void saveProvider({ ...row, medicalRequestedDate: v }, key)}
+        />
+        <DateCell
+          label="Medical received"
+          disabled={saving}
+          value={row.medicalReceivedDate}
+          onChange={(v) => void saveProvider({ ...row, medicalReceivedDate: v }, key)}
+        />
+        <DateCell
+          label="Billing requested"
+          disabled={saving}
+          value={row.billingRequestedDate}
+          onChange={(v) => void saveProvider({ ...row, billingRequestedDate: v }, key)}
+        />
+        <DateCell
+          label="Billing received"
+          disabled={saving}
+          value={row.billingReceivedDate}
+          onChange={(v) => void saveProvider({ ...row, billingReceivedDate: v }, key)}
+        />
+        <td className="px-1.5 py-2 align-top">
+          <div className="flex items-center justify-end gap-1">
+            {saving && <Spinner className="h-3.5 w-3.5" />}
+            {row.id && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="px-2 text-danger hover:bg-danger-light"
+                disabled={saving}
+                onClick={() => void deleteProvider(row, key)}
+              >
+                Delete
+              </Button>
+            )}
+          </div>
         </td>
       </tr>
     );
@@ -257,24 +318,48 @@ export function MedicalTracker({
         </div>
         {error && <p className="mt-3 text-sm text-danger">{error}</p>}
       </CardHeader>
-      <CardBody className="overflow-x-auto p-0">
-        <table className="w-full min-w-275 text-left text-sm">
+      <CardBody className="overflow-hidden p-0">
+        <table className="w-full table-fixed text-left text-sm">
+          <colgroup>
+            <col className="w-[20%]" />
+            <col className="w-[8%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[12.5%]" />
+            <col className="w-[9.5%]" />
+          </colgroup>
           <thead>
-            <tr className="border-b border-border bg-primary-light/40 text-xs uppercase text-text-muted">
-              <th className="px-3 py-3"><SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-              <th className="px-3 py-3"><SortHeader label="LOP" field="hasLop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-              <th className="px-3 py-3"><SortHeader label="Treatment Finished" field="treatmentFinishedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-              <th className="px-3 py-3"><SortHeader label="Medical Requested" field="medicalRequestedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-              <th className="px-3 py-3"><SortHeader label="Medical Received" field="medicalReceivedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-              <th className="px-3 py-3"><SortHeader label="Billing Requested" field="billingRequestedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-              <th className="px-3 py-3"><SortHeader label="Billing Received" field="billingReceivedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-              <th className="px-3 py-3">Actions</th>
+            <tr className="border-b border-border bg-primary-light/40 text-[11px] uppercase leading-tight text-text-muted">
+              <th className="px-2 py-2">
+                <SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              </th>
+              <th className="px-1.5 py-2">
+                <SortHeader label="LOP" field="hasLop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              </th>
+              <th className="px-1.5 py-2" title="Treatment Finished">
+                <SortHeader label="Tx Fin" field="treatmentFinishedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              </th>
+              <th className="px-1.5 py-2" title="Medical Requested">
+                <SortHeader label="Med Req" field="medicalRequestedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              </th>
+              <th className="px-1.5 py-2" title="Medical Received">
+                <SortHeader label="Med Rcv" field="medicalReceivedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              </th>
+              <th className="px-1.5 py-2" title="Billing Requested">
+                <SortHeader label="Bill Req" field="billingRequestedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              </th>
+              <th className="px-1.5 py-2" title="Billing Received">
+                <SortHeader label="Bill Rcv" field="billingReceivedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+              </th>
+              <th className="px-1.5 py-2 text-right"> </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {editingKey === "__new__" && (
               <tr>
-                <td className="px-3 py-2">
+                <td className="px-2 py-2" colSpan={7}>
                   <Input
                     autoFocus
                     value={addingName}
@@ -286,9 +371,8 @@ export function MedicalTracker({
                     }}
                   />
                 </td>
-                <td colSpan={6} />
-                <td className="px-3 py-2">
-                  <div className="flex gap-1">
+                <td className="px-1.5 py-2">
+                  <div className="flex justify-end gap-1">
                     <Button
                       size="sm"
                       disabled={savingKey === "__new__" || !addingName.trim()}
@@ -317,21 +401,24 @@ export function MedicalTracker({
 }
 
 function DateCell({
+  label,
   disabled,
   value,
   onChange,
 }: {
+  label: string;
   disabled: boolean;
   value: string | null;
   onChange: (value: string | null) => void;
 }) {
   return (
-    <td className="whitespace-nowrap px-3 py-2 tabular-nums">
+    <td className="min-w-0 px-1.5 py-2 align-top">
       <Input
         type="date"
+        className="min-w-0 px-1 py-1 text-xs"
         disabled={disabled}
         value={value ?? ""}
-        aria-label={value ? `Date ${formatDate(value)}` : "Select date"}
+        aria-label={value ? `${label}: ${formatDate(value)}` : label}
         onChange={(e) => onChange(e.target.value || null)}
       />
     </td>
