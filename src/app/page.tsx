@@ -259,9 +259,14 @@ export default function HomePage() {
                         {meta.length ? meta.join(" · ") : row.case.clientName || "—"}
                       </p>
                     </div>
-                    <div className="flex shrink-0 flex-col items-end gap-1 text-right text-[13px]">
+                    <div className="flex shrink-0 flex-col items-end gap-0.5 text-right text-[13px]">
                       <p className="text-base font-semibold tabular-nums tracking-tight text-text">
                         {formatMedicalMoney(row.totalAmount, false)}
+                      </p>
+                      <p className="tabular-nums text-text-muted">
+                        Medical {formatMedicalMoney(row.medicalTotal, false)}
+                        <span className="mx-1 text-text-dim">·</span>
+                        Expenses {formatMedicalMoney(row.expensesTotal, false)}
                       </p>
                       <p className="tabular-nums text-text-muted">
                         <span className="font-medium text-text">{row.lopCount}</span>{" "}

@@ -150,7 +150,11 @@ export interface CaseListRow {
   paralegal: Contact | null;
   lopCount: number;
   lastDropboxSyncAt: number | null;
-  /** Medical charges total (same as case-page “Total”). */
+  /** Medical charges total. */
+  medicalTotal: number;
+  /** Vendor / case-expense amounts total. */
+  expensesTotal: number;
+  /** medicalTotal + expensesTotal. */
   totalAmount: number;
 }
 
@@ -179,8 +183,23 @@ export async function fetchCaseListRowsBasic(supabase: SupabaseClient): Promise<
     paralegal: null,
     lopCount: 0,
     lastDropboxSyncAt: null,
+    medicalTotal: 0,
+    expensesTotal: 0,
     totalAmount: 0,
   }));
+}
+
+function resolveListCaseId(
+  row: Record<string, unknown>,
+  caseIdSet: Set<string>,
+  caseIdByNumber: Map<string, string>
+): string | null {
+  const byId = row.case_id != null ? String(row.case_id) : "";
+  const byNumber = String(row.case_number ?? "").trim();
+  return (
+    (byId && caseIdSet.has(byId) ? byId : null) ??
+    (byNumber ? caseIdByNumber.get(byNumber) ?? null : null)
+  );
 }
 
 export async function enrichCaseListRows(
@@ -199,7 +218,7 @@ export async function enrichCaseListRows(
   }
 
   // Avoid huge `.in(case_id, …)` URLs — fetch compact indexes and filter client-side.
-  const [contacts, lopRows, importRows, amountRows] = await Promise.all([
+  const [contacts, lopRows, importRows, medicalRows, expenseRows] = await Promise.all([
     contactIds.length
       ? fetchContactsByIds(supabase, contactIds)
       : Promise.resolve([] as Contact[]),
@@ -227,6 +246,13 @@ export async function enrichCaseListRows(
         if (error) throw error;
         return data ?? [];
       }),
+    supabase
+      .from("case_expenses")
+      .select("case_id, case_number, amount")
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return data ?? [];
+      }),
   ]);
 
   const contactsById = new Map(contacts.map((c) => [c.id, c]));
@@ -248,30 +274,39 @@ export async function enrichCaseListRows(
     if (when > 0) lastSyncByCase.set(id, when);
   }
 
-  const totalByCase = new Map<string, number>();
-  for (const row of amountRows as Record<string, unknown>[]) {
-    const byId = row.case_id != null ? String(row.case_id) : "";
-    const byNumber = String(row.case_number ?? "").trim();
-    const caseId =
-      (byId && caseIdSet.has(byId) ? byId : null) ??
-      (byNumber ? caseIdByNumber.get(byNumber) ?? null : null);
+  const medicalByCase = new Map<string, number>();
+  for (const row of medicalRows as Record<string, unknown>[]) {
+    const caseId = resolveListCaseId(row, caseIdSet, caseIdByNumber);
     if (!caseId) continue;
     const charge = Number(row.original_charges ?? row.reduced_from_amount ?? 0);
     if (!Number.isFinite(charge) || charge <= 0) continue;
-    totalByCase.set(caseId, (totalByCase.get(caseId) ?? 0) + charge);
+    medicalByCase.set(caseId, (medicalByCase.get(caseId) ?? 0) + charge);
+  }
+
+  const expensesByCase = new Map<string, number>();
+  for (const row of expenseRows as Record<string, unknown>[]) {
+    const caseId = resolveListCaseId(row, caseIdSet, caseIdByNumber);
+    if (!caseId) continue;
+    const amount = Number(row.amount ?? 0);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    expensesByCase.set(caseId, (expensesByCase.get(caseId) ?? 0) + amount);
   }
 
   return cases.map((caseRecord) => {
     const assigned = caseRecord.assignedContactIds
       .map((id) => contactsById.get(id))
       .filter((c): c is Contact => Boolean(c));
+    const medicalTotal = medicalByCase.get(caseRecord.id) ?? 0;
+    const expensesTotal = expensesByCase.get(caseRecord.id) ?? 0;
     return {
       case: caseRecord,
       attorney: assigned.find((c) => c.role === "attorney") ?? null,
       paralegal: assigned.find((c) => c.role === "paralegal") ?? null,
       lopCount: lopCountByCase.get(caseRecord.id) ?? 0,
       lastDropboxSyncAt: lastSyncByCase.get(caseRecord.id) ?? null,
-      totalAmount: totalByCase.get(caseRecord.id) ?? 0,
+      medicalTotal,
+      expensesTotal,
+      totalAmount: medicalTotal + expensesTotal,
     };
   });
 }
