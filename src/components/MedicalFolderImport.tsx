@@ -9,7 +9,33 @@ import {
   type MedicalImportFolderPreview,
   type MedicalImportJob,
 } from "@/lib/medical-import-api";
+import {
+  fetchLatestMedicalImportForCase,
+  type CaseMedicalImportSummary,
+} from "@/lib/supabase/repo";
+import { getBrowserSupabase } from "@/lib/supabase/singleton";
 import { Badge, Button, Card, CardBody, CardHeader, Select, Spinner } from "@/components/ui";
+
+function formatImportWhen(ms: number): string {
+  return new Date(ms).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function lastImportLabel(summary: CaseMedicalImportSummary): string {
+  const when = summary.completedAt ?? summary.startedAt ?? summary.createdAt;
+  const stamp = formatImportWhen(when);
+  if (summary.status === "completed") return `Last import: ${stamp}`;
+  if (summary.status === "failed") return `Last import failed: ${stamp}`;
+  if (summary.status === "running" || summary.status === "queued") {
+    return `Import ${summary.status}: started ${stamp}`;
+  }
+  return `Last import: ${stamp}`;
+}
 
 export function MedicalFolderImport({
   caseId,
@@ -23,6 +49,7 @@ export function MedicalFolderImport({
   const [folders, setFolders] = useState<MedicalImportFolderPreview[]>([]);
   const [selectedPath, setSelectedPath] = useState("");
   const [job, setJob] = useState<MedicalImportJob | null>(null);
+  const [lastImport, setLastImport] = useState<CaseMedicalImportSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const configured = isMedicalImportConfigured();
 
@@ -30,6 +57,20 @@ export function MedicalFolderImport({
     () => folders.find((folder) => folder.path === selectedPath) ?? null,
     [folders, selectedPath]
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetchLatestMedicalImportForCase(getBrowserSupabase(), caseId)
+      .then((summary) => {
+        if (!cancelled) setLastImport(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setLastImport(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [caseId]);
 
   useEffect(() => {
     if (!job || (job.status !== "queued" && job.status !== "running")) return;
@@ -85,12 +126,28 @@ export function MedicalFolderImport({
 
   if (!configured) return null;
 
+  const lastImportMeta = lastImport ? (
+    <p className="text-sm text-text-muted">
+      {lastImportLabel(lastImport)}
+      {lastImport.status === "completed" && (
+        <span className="text-text-dim">
+          {" "}
+          · {lastImport.importedRecords} imported
+          {lastImport.failedFiles > 0 ? ` · ${lastImport.failedFiles} failed` : ""}
+        </span>
+      )}
+    </p>
+  ) : (
+    <p className="text-sm text-text-muted">No Dropbox medical import has been run on this case yet.</p>
+  );
+
   if (!open) {
     return (
-      <div className="mt-4">
+      <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
         <Button variant="secondary" onClick={() => void loadFolders()}>
           Import existing Dropbox medical files
         </Button>
+        {lastImportMeta}
       </div>
     );
   }
@@ -108,6 +165,7 @@ export function MedicalFolderImport({
             <p className="mt-1 text-sm text-text-muted">
               Recursively scans the selected case’s LOP and Medical folders. Nothing is posted to Slack.
             </p>
+            <div className="mt-2">{lastImportMeta}</div>
           </div>
           {!active && <Button size="sm" variant="ghost" onClick={() => setOpen(false)}>Close</Button>}
         </div>

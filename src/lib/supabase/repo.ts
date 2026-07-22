@@ -309,6 +309,45 @@ export async function deleteMedicalTrackerProvider(
   if (error) throw new Error(formatWriteError("Delete medical tracker", error));
 }
 
+export interface CaseMedicalImportSummary {
+  id: string;
+  status: "queued" | "running" | "completed" | "failed";
+  importedRecords: number;
+  skippedFiles: number;
+  failedFiles: number;
+  startedAt: number | null;
+  completedAt: number | null;
+  createdAt: number;
+}
+
+export async function fetchLatestMedicalImportForCase(
+  supabase: SupabaseClient,
+  caseId: string
+): Promise<CaseMedicalImportSummary | null> {
+  const { data, error } = await supabase
+    .from("medical_import_jobs")
+    .select(
+      "id, status, imported_records, skipped_files, failed_files, started_at, completed_at, created_at"
+    )
+    .eq("case_id", caseId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (!data) return null;
+  const row = data as Record<string, unknown>;
+  return {
+    id: row.id as string,
+    status: row.status as CaseMedicalImportSummary["status"],
+    importedRecords: Number(row.imported_records ?? 0),
+    skippedFiles: Number(row.skipped_files ?? 0),
+    failedFiles: Number(row.failed_files ?? 0),
+    startedAt: row.started_at ? parseTimestamp(row.started_at) : null,
+    completedAt: row.completed_at ? parseTimestamp(row.completed_at) : null,
+    createdAt: parseTimestamp(row.created_at),
+  };
+}
+
 export function subscribeAllMedicalExpensesLog(
   supabase: SupabaseClient,
   cb: (expenses: MedicalExpense[]) => void
