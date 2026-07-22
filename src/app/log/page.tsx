@@ -280,7 +280,7 @@ export default function ExpenseLogPage() {
                     e.caseId &&
                     (row.kind === "medical"
                       ? `/cases/${e.caseId}/financials/medical-expenses`
-                      : `/cases/${e.caseId}/financials/case-expenses`);
+                      : `/cases/${e.caseId}/financials/medical-expenses#case-expenses`);
                   const conf = rowConfidence(row);
                   const paymentLabel =
                     row.kind === "medical"

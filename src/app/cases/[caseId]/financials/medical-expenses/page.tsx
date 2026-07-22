@@ -32,6 +32,7 @@ import { MedicalProviderSummary } from "@/components/MedicalProviderSummary";
 import { MedicalTracker } from "@/components/MedicalTracker";
 import { MedicalFolderImport } from "@/components/MedicalFolderImport";
 import { CaseSummaryCard } from "@/components/CaseSummaryCard";
+import { CaseExpensesSection } from "@/components/CaseExpensesSection";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   Badge,
@@ -268,15 +269,15 @@ export default function MedicalExpensesPage() {
         <span className="mx-2 text-text-dim">/</span>
         <span className="text-text-secondary">{caseTitle}</span>
         <span className="mx-2 text-text-dim">/</span>
-        <span className="font-medium text-text">Medical Expenses</span>
+        <span className="font-medium text-text">Financials</span>
       </nav>
 
       {caseRecord && <CaseSummaryCard caseRecord={caseRecord} />}
 
       <PageHeader
         className="mt-6"
-        title="Medical Expenses"
-        subtitle="Track providers and records first, then review financial details from filed documents."
+        title="Case Financials"
+        subtitle="Medical tracker and invoices first, then vendor case expenses — all on one page."
       />
 
       {err && (
@@ -284,6 +285,13 @@ export default function MedicalExpensesPage() {
           {err}
         </div>
       )}
+
+      <div className="mt-8">
+        <h2 className="text-xl font-semibold text-text">Medical Expenses</h2>
+        <p className="mt-1 text-sm text-text-muted">
+          Track providers and records first, then review financial details from filed medical documents.
+        </p>
+      </div>
 
       {caseRecord?.caseNumber && (
         <MedicalFolderImport caseId={caseId} caseNumber={caseRecord.caseNumber} />
@@ -484,6 +492,8 @@ export default function MedicalExpensesPage() {
           )}
         </CardBody>
       </Card>
+
+      <CaseExpensesSection caseId={caseId} caseNumber={caseRecord?.caseNumber ?? null} />
     </PageWrapper>
   );
 }

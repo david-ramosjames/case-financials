@@ -62,20 +62,12 @@ export default function HomePage() {
                   <p className="font-medium text-text">{caseDisplayName(c)}</p>
                   {c.caseNumber && <p className="text-sm text-text-muted">Case #{c.caseNumber}</p>}
                 </div>
-                <div className="flex flex-wrap gap-3">
-                  <Link
-                    href={`/cases/${c.id}/financials/medical-expenses`}
-                    className="text-sm font-medium text-primary hover:underline"
-                  >
-                    Medical Expenses →
-                  </Link>
-                  <Link
-                    href={`/cases/${c.id}/financials/case-expenses`}
-                    className="text-sm font-medium text-primary hover:underline"
-                  >
-                    Case Expenses →
-                  </Link>
-                </div>
+                <Link
+                  href={`/cases/${c.id}/financials/medical-expenses`}
+                  className="text-sm font-medium text-primary hover:underline"
+                >
+                  Open Financials →
+                </Link>
               </CardBody>
             </Card>
           ))
