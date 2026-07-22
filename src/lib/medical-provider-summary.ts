@@ -1,5 +1,10 @@
 import type { MedicalExpense } from "@/lib/types";
 import { isMedicalPaid } from "@/lib/expense-review";
+import {
+  canonicalizeProviderTokens,
+  preferredProviderName,
+  providerNamesMatch,
+} from "@/lib/provider-name-match";
 
 export interface ProviderRollup {
   providerName: string;
@@ -64,8 +69,19 @@ export function deriveLineAmounts(e: MedicalExpense): {
   return { charge, paid, adjusted, outstanding };
 }
 
-function providerKey(name: string): string {
-  return name.trim().toLowerCase();
+function providerGroupKey(name: string): string {
+  const tokens = canonicalizeProviderTokens(name);
+  return tokens.length ? tokens.join(" ") : name.trim().toLowerCase();
+}
+
+/** Prefer one display name for near-duplicate provider labels on a case. */
+export function alignProviderName(name: string, candidates: string[]): string {
+  const trimmed = name.trim() || "Unknown provider";
+  const matches = candidates
+    .map((c) => c.trim())
+    .filter((c) => c && providerNamesMatch(trimmed, c));
+  if (!matches.length) return trimmed;
+  return matches.reduce((best, next) => preferredProviderName(best, next), trimmed);
 }
 
 export function buildMedicalProviderSummary(expenses: MedicalExpense[]): {
@@ -73,14 +89,17 @@ export function buildMedicalProviderSummary(expenses: MedicalExpense[]): {
   totals: MedicalSummaryTotals;
 } {
   const byProvider = new Map<string, ProviderRollup>();
+  const allNames = expenses.map((e) => e.providerName.trim() || "Unknown provider");
 
   for (const expense of expenses) {
-    const name = expense.providerName.trim() || "Unknown provider";
-    const key = providerKey(name);
+    const rawName = expense.providerName.trim() || "Unknown provider";
+    const name = alignProviderName(rawName, allNames);
+    const key = providerGroupKey(name);
     const line = deriveLineAmounts(expense);
     const existing = byProvider.get(key);
 
     if (existing) {
+      existing.providerName = preferredProviderName(existing.providerName, name);
       existing.charge += line.charge;
       existing.paid += line.paid;
       existing.adjusted += line.adjusted;

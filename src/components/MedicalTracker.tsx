@@ -206,9 +206,9 @@ export function MedicalTracker({
     setError(null);
     try {
       await deleteMedicalTrackerProvider(getBrowserSupabase(), row.id);
+      window.location.reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not delete provider");
-    } finally {
       setSavingKey(null);
     }
   };

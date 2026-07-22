@@ -16,6 +16,7 @@ import {
 } from "@/lib/supabase/repo";
 import { caseDisplayName } from "@/lib/case-display";
 import { isMedicalPaid, needsMedicalReview } from "@/lib/expense-review";
+import { alignProviderName } from "@/lib/medical-provider-summary";
 import { SortHeader, useSortState } from "@/lib/table-sort";
 import type {
   Case,
@@ -190,6 +191,11 @@ export default function MedicalExpensesPage() {
 
   const needsReview = useMemo(() => expenses.filter(needsMedicalReview).length, [expenses]);
 
+  const providerNameCandidates = useMemo(
+    () => expenses.map((e) => e.providerName.trim() || "Unknown provider"),
+    [expenses]
+  );
+
   const markPaid = useCallback(async (expenseId: string) => {
     setSaving(true);
     setErr(null);
@@ -350,16 +356,15 @@ export default function MedicalExpensesPage() {
           ) : (
             <table className="w-full table-fixed text-left text-sm">
               <colgroup>
-                <col className="w-[14%]" />
-                <col className="w-[11%]" />
+                <col className="w-[18%]" />
+                <col className="w-[12%]" />
+                <col className="w-[10%]" />
+                <col className="w-[10%]" />
                 <col className="w-[9%]" />
                 <col className="w-[9%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
-                <col className="w-[8%]" />
                 <col className="w-[9%]" />
+                <col className="w-[10%]" />
                 <col className="w-[8%]" />
-                <col className="w-[6%]" />
                 <col className="w-[5%]" />
                 <col className="w-[5%]" />
               </colgroup>
@@ -375,7 +380,6 @@ export default function MedicalExpensesPage() {
                   <th className="px-2 py-2"><SortHeader label="Payment" field="paymentStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
                   <th className="px-2 py-2"><SortHeader label="Review" field="reviewStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
                   <th className="px-2 py-2"><SortHeader label="Conf" field="extractionConfidence" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-2 py-2">Src</th>
                   <th className="px-2 py-2"> </th>
                 </tr>
               </thead>
@@ -383,13 +387,34 @@ export default function MedicalExpensesPage() {
                 {filtered.map((expense) => {
                   const isEditing = editingId === expense.id;
                   const row = isEditing ? { ...expense, ...editDraft } : expense;
+                  const displayProvider = isEditing
+                    ? row.providerName
+                    : alignProviderName(row.providerName, providerNameCandidates);
+                  const sourceLabel = sourceFileName(row.dropboxFilePath);
                   return (
                     <tr key={expense.id} className={needsMedicalReview(expense) ? "bg-warning-light/20 hover:bg-warning-light/40" : "hover:bg-surface-alt/40"}>
-                      <td className="min-w-0 px-2 py-2">
+                      <td className="min-w-0 px-2 py-2 align-top">
                         {isEditing ? (
                           <Input className="px-1.5 py-1 text-xs" value={row.providerName} onChange={(e) => setEditDraft((d) => ({ ...d, providerName: e.target.value }))} />
                         ) : (
-                          <span className="block truncate font-medium" title={row.providerName}>{row.providerName}</span>
+                          <>
+                            <span className="block truncate font-medium" title={displayProvider}>{displayProvider}</span>
+                            {row.dropboxPermalink ? (
+                              <a
+                                href={row.dropboxPermalink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-0.5 block truncate text-[11px] leading-tight text-primary hover:underline"
+                                title={row.dropboxFilePath ?? sourceLabel}
+                              >
+                                {sourceLabel}
+                              </a>
+                            ) : sourceLabel !== "—" ? (
+                              <span className="mt-0.5 block truncate text-[11px] leading-tight text-text-dim" title={row.dropboxFilePath ?? undefined}>
+                                {sourceLabel}
+                              </span>
+                            ) : null}
+                          </>
                         )}
                       </td>
                       <td className="min-w-0 px-2 py-2">
@@ -426,15 +451,6 @@ export default function MedicalExpensesPage() {
                       </td>
                       <td className="px-2 py-2 tabular-nums text-text-secondary">
                         {row.extractionConfidence != null ? formatPercent(row.extractionConfidence) : "—"}
-                      </td>
-                      <td className="min-w-0 px-2 py-2">
-                        {row.dropboxPermalink ? (
-                          <a href={row.dropboxPermalink} target="_blank" rel="noopener noreferrer" className="block truncate text-primary hover:underline" title={row.dropboxFilePath ?? undefined}>
-                            {sourceFileName(row.dropboxFilePath)}
-                          </a>
-                        ) : (
-                          <span className="block truncate" title={row.dropboxFilePath ?? undefined}>{sourceFileName(row.dropboxFilePath)}</span>
-                        )}
                       </td>
                       <td className="px-1 py-2">
                         <div className="flex flex-col items-stretch gap-1">
