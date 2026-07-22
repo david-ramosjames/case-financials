@@ -22,6 +22,8 @@ const ROLE_LABELS: Record<Contact["role"], string> = {
 export function CaseFinancialHero({
   caseRecord,
   outstanding,
+  total,
+  paid,
   providerCount,
   needsReview,
   lopProviders,
@@ -31,6 +33,8 @@ export function CaseFinancialHero({
 }: {
   caseRecord: Case;
   outstanding: number;
+  total: number;
+  paid: number;
   providerCount: number;
   needsReview: number;
   lopProviders: number;
@@ -126,15 +130,17 @@ export function CaseFinancialHero({
         </div>
       </div>
 
-      <div className="mt-8 grid grid-cols-2 gap-x-8 gap-y-5 border-t border-border/70 pt-6 sm:grid-cols-4">
+      <div className="mt-8 grid grid-cols-2 gap-x-8 gap-y-5 border-t border-border/70 pt-6 sm:grid-cols-3 lg:grid-cols-6">
         <HeroStat label="Outstanding" value={formatMedicalMoney(outstanding, false)} emphasize />
-        <HeroStat label="Providers" value={String(providerCount)} />
+        <HeroStat label="Total" value={formatMedicalMoney(total, false)} emphasize />
+        <HeroStat label="Paid" value={formatMedicalMoney(paid, false)} emphasize />
         <HeroStat
           label="Needs Review"
           value={String(needsReview)}
           emphasize={needsReview > 0}
           warn={needsReview > 0}
         />
+        <HeroStat label="Providers" value={String(providerCount)} />
         <HeroStat label="LOP Providers" value={String(lopProviders)} />
       </div>
     </div>
@@ -163,58 +169,6 @@ function HeroStat({
               : "text-2xl font-semibold text-text"
             : "text-xl font-medium text-text"
         }`}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-export function StickyCaseStats({
-  outstanding,
-  providerCount,
-  needsReview,
-  lopProviders,
-}: {
-  outstanding: number;
-  providerCount: number;
-  needsReview: number;
-  lopProviders: number;
-}) {
-  return (
-    <aside className="hidden lg:block">
-      <div className="sticky top-8 space-y-5 rounded-xl bg-surface px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_20px_rgba(15,23,42,0.05)]">
-        <StickyStat label="Outstanding" value={formatMedicalMoney(outstanding, false)} large />
-        <StickyStat label="Providers" value={String(providerCount)} />
-        <StickyStat
-          label="Needs Review"
-          value={String(needsReview)}
-          warn={needsReview > 0}
-        />
-        <StickyStat label="LOP" value={String(lopProviders)} />
-      </div>
-    </aside>
-  );
-}
-
-function StickyStat({
-  label,
-  value,
-  large,
-  warn,
-}: {
-  label: string;
-  value: string;
-  large?: boolean;
-  warn?: boolean;
-}) {
-  return (
-    <div>
-      <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-text-dim">{label}</p>
-      <p
-        className={`mt-1 tabular-nums tracking-tight ${
-          large ? "text-2xl font-semibold text-text" : "text-lg font-medium text-text"
-        } ${warn ? "text-warning" : ""}`}
       >
         {value}
       </p>

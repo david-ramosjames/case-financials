@@ -68,12 +68,3 @@ export function FinancialSection({
     </section>
   );
 }
-
-export function SectionDivider({ label }: { label: string }) {
-  return (
-    <div className="flex items-center gap-4 py-2" aria-hidden>
-      <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-text-dim">{label}</span>
-      <div className="h-px flex-1 bg-border/80" />
-    </div>
-  );
-}

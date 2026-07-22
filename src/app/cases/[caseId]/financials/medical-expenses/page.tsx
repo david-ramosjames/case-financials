@@ -36,8 +36,8 @@ import { ManualMedicalExpenseForm } from "@/components/ManualExpenseForm";
 import { MedicalProviderSummary } from "@/components/MedicalProviderSummary";
 import { MedicalTracker, type MedicalTrackerHandle } from "@/components/MedicalTracker";
 import { MedicalFolderImport } from "@/components/MedicalFolderImport";
-import { CaseFinancialHero, StickyCaseStats, StatusDot } from "@/components/CaseFinancialHero";
-import { FinancialSection, SectionDivider } from "@/components/FinancialSection";
+import { CaseFinancialHero, StatusDot } from "@/components/CaseFinancialHero";
+import { FinancialSection } from "@/components/FinancialSection";
 import { CaseExpensesSection } from "@/components/CaseExpensesSection";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
@@ -285,12 +285,13 @@ export default function MedicalExpensesPage() {
         <span className="text-text">Financials</span>
       </nav>
 
-      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_11.5rem] lg:items-start lg:gap-10">
-        <div className="min-w-0 space-y-14">
+      <div className="space-y-14">
           {caseRecord && (
             <CaseFinancialHero
               caseRecord={caseRecord}
               outstanding={summary.totals.outstanding}
+              total={summary.totals.charge}
+              paid={summary.totals.paid}
               providerCount={summary.providers.length || trackedProviders.length}
               needsReview={needsReview}
               lopProviders={lopProviders}
@@ -321,59 +322,48 @@ export default function MedicalExpensesPage() {
             />
           )}
 
-          <div>
-            <SectionDivider label="Medical Tracker" />
-            <FinancialSection
-              id="medical-tracker"
-              level={2}
-              title="Medical Tracker"
-              description="Track provider progression from LOP → treatment → final bill."
-              className="mt-4"
-            >
-              {caseRecord?.caseNumber ? (
-                <div className="-mx-6 -mb-5 lg:-mx-8 lg:-mb-6">
-                  <MedicalTracker
-                    ref={trackerRef}
-                    caseId={caseId}
-                    caseNumber={caseRecord.caseNumber}
-                    trackedProviders={trackedProviders}
-                    expenses={expenses}
-                    hideChrome
-                  />
-                </div>
-              ) : (
-                <p className="text-[15px] text-warning">Add a case number before using the Medical Tracker.</p>
-              )}
-            </FinancialSection>
-          </div>
+          <FinancialSection
+            id="medical-tracker"
+            level={2}
+            title="Medical Tracker"
+            description="Track provider progression from LOP → treatment → final bill."
+          >
+            {caseRecord?.caseNumber ? (
+              <div className="-mx-6 -mb-5 lg:-mx-8 lg:-mb-6">
+                <MedicalTracker
+                  ref={trackerRef}
+                  caseId={caseId}
+                  caseNumber={caseRecord.caseNumber}
+                  trackedProviders={trackedProviders}
+                  expenses={expenses}
+                  hideChrome
+                />
+              </div>
+            ) : (
+              <p className="text-[15px] text-warning">Add a case number before using the Medical Tracker.</p>
+            )}
+          </FinancialSection>
 
-          <div>
-            <SectionDivider label="Financial Summary" />
-            <FinancialSection
-              id="financial-summary"
-              level={3}
-              title="Financial Summary"
-              description="Outstanding balances rolled up by provider."
-              className="mt-4"
-            >
-              <MedicalProviderSummary expenses={expenses} needsReview={needsReview} />
-            </FinancialSection>
-          </div>
+          <FinancialSection
+            id="financial-summary"
+            level={3}
+            title="Financial Summary"
+            description="Outstanding balances rolled up by provider."
+          >
+            <MedicalProviderSummary expenses={expenses} needsReview={needsReview} />
+          </FinancialSection>
 
-          <div>
-            <SectionDivider label="Invoices" />
-            <FinancialSection
-              id="invoices"
-              level={4}
-              title="Invoices"
-              description="Review individual medical bills — which provider, how much, what needs action."
-              className="mt-4"
-              actions={
-                <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
-                  {showAddForm ? "Cancel" : "Upload Invoice"}
-                </Button>
-              }
-            >
+          <FinancialSection
+            id="invoices"
+            level={4}
+            title="Invoices"
+            description="Review individual medical bills — which provider, how much, what needs action."
+            actions={
+              <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
+                {showAddForm ? "Cancel" : "Upload Invoice"}
+              </Button>
+            }
+          >
               <div className="flex flex-wrap items-end gap-3">
                 <div className="min-w-48 flex-1">
                   <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
@@ -731,22 +721,8 @@ export default function MedicalExpensesPage() {
                 )}
               </div>
             </FinancialSection>
-          </div>
 
-          <div>
-            <SectionDivider label="Case Expenses" />
-            <div className="mt-4">
-              <CaseExpensesSection caseId={caseId} caseNumber={caseRecord?.caseNumber ?? null} />
-            </div>
-          </div>
-        </div>
-
-        <StickyCaseStats
-          outstanding={summary.totals.outstanding}
-          providerCount={summary.providers.length || trackedProviders.length}
-          needsReview={needsReview}
-          lopProviders={lopProviders}
-        />
+          <CaseExpensesSection caseId={caseId} caseNumber={caseRecord?.caseNumber ?? null} />
       </div>
     </PageWrapper>
   );
