@@ -24,9 +24,6 @@ import { ManualCaseExpenseForm } from "@/components/ManualExpenseForm";
 import {
   Badge,
   Button,
-  Card,
-  CardBody,
-  CardHeader,
   EmptyState,
   Input,
   Select,
@@ -138,62 +135,63 @@ export function CaseExpensesSection({
   }, []);
 
   return (
-    <div className="mt-10" id="case-expenses">
-      <div className="mb-4">
-        <h2 className="text-xl font-semibold text-text">Case Expenses</h2>
-        <p className="mt-1 text-sm text-text-muted">
-          Vendor invoices and case costs from the Expenses folder — separate from medical provider billing.
-        </p>
+    <div id="case-expenses">
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="font-serif text-base tracking-tight text-text-secondary">Case Expenses</h2>
+          <p className="mt-1.5 text-[15px] text-text-muted">
+            Vendor invoices and case costs from the Expenses folder.
+          </p>
+        </div>
+        <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
+          {showAddForm ? "Cancel" : "Upload Expense"}
+        </Button>
       </div>
 
       {err && (
-        <div className="mb-4 rounded-lg border border-danger/30 bg-danger-light px-4 py-3 text-sm text-danger">
-          {err}
-        </div>
+        <div className="mb-4 rounded-xl bg-danger-light px-4 py-3 text-sm text-danger">{err}</div>
       )}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardBody className="py-3">
-            <p className="text-xs uppercase text-text-muted">Total Amount</p>
-            <p className="mt-1 text-lg font-semibold">{formatCurrency(summary.total)}</p>
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody className="py-3">
-            <p className="text-xs uppercase text-text-muted">Paid</p>
-            <p className="mt-1 text-lg font-semibold">{formatCurrency(summary.paid)}</p>
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody className="py-3">
-            <p className="text-xs uppercase text-text-muted">Count</p>
-            <p className="mt-1 text-lg font-semibold">{summary.count}</p>
-          </CardBody>
-        </Card>
-        <Card>
-          <CardBody className="py-3">
-            <p className="text-xs uppercase text-text-muted">Needs Review</p>
-            <p className="mt-1 text-lg font-semibold text-warning">{summary.needsReview}</p>
-          </CardBody>
-        </Card>
+      <div className="mb-6 flex flex-wrap gap-x-8 gap-y-3 text-[13px] text-text-muted">
+        <span>
+          Total{" "}
+          <span className="text-base font-semibold tabular-nums text-text">
+            {formatCurrency(summary.total)}
+          </span>
+        </span>
+        <span>
+          Paid{" "}
+          <span className="tabular-nums text-text-secondary">{formatCurrency(summary.paid)}</span>
+        </span>
+        <span>
+          Count <span className="tabular-nums text-text-secondary">{summary.count}</span>
+        </span>
+        {summary.needsReview > 0 && (
+          <span className="text-warning">
+            Needs review <span className="font-semibold tabular-nums">{summary.needsReview}</span>
+          </span>
+        )}
       </div>
 
-      <Card className="mt-4">
-        <CardHeader>
-          <div className="flex flex-wrap items-end gap-3">
-            <div className="min-w-[12rem] flex-1">
-              <label className="mb-1 block text-xs font-medium text-text-muted">Search</label>
+      <div className="rounded-xl bg-surface">
+        <div className="flex flex-wrap items-end gap-3 px-5 py-4">
+            <div className="min-w-48 flex-1">
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
+                Search
+              </label>
               <Input
+                className="border-0 bg-surface-alt/70 shadow-none focus:ring-1"
                 placeholder="Vendor, invoice #, description…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-medium text-text-muted">Review</label>
+              <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
+                Review
+              </label>
               <Select
-                className="min-w-[9rem]"
+                className="min-w-36 border-0 bg-surface-alt/70 shadow-none focus:ring-1"
                 value={filterReview}
                 onChange={(e) => setFilterReview(e.target.value as typeof filterReview)}
               >
@@ -202,13 +200,9 @@ export function CaseExpensesSection({
                 <option value="reviewed">Reviewed</option>
               </Select>
             </div>
-            <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
-              {showAddForm ? "Cancel" : "Add file"}
-            </Button>
-          </div>
-        </CardHeader>
+        </div>
         {showAddForm && caseNumber && (
-          <div className="px-6 pb-4">
+          <div className="px-5 pb-4">
             <ManualCaseExpenseForm
               caseId={caseId}
               caseNumber={caseNumber}
@@ -217,16 +211,16 @@ export function CaseExpensesSection({
           </div>
         )}
         {showAddForm && !caseNumber && (
-          <div className="px-6 pb-4 text-sm text-danger">
-            This case has no case number — cannot add a file yet.
+          <div className="px-5 pb-4 text-sm text-danger">
+            This case has no case number — cannot upload yet.
           </div>
         )}
-        <CardBody className="overflow-hidden p-0">
+        <div className="overflow-hidden">
           {filtered.length === 0 ? (
-            <div className="px-6 py-12">
+            <div className="px-5 py-12">
               <EmptyState
                 title="No case expenses yet"
-                description="Expenses appear when documents are filed to the Dropbox Expenses folder."
+                description="Use Import Dropbox above, or upload an expense with a shared link."
               />
             </div>
           ) : (
@@ -498,8 +492,8 @@ export function CaseExpensesSection({
               </tbody>
             </table>
           )}
-        </CardBody>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }

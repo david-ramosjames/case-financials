@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useImperativeHandle, useMemo, useState, forwardRef } from "react";
 import { getBrowserSupabase } from "@/lib/supabase/singleton";
 import {
   deleteMedicalTrackerProvider,
@@ -9,7 +9,7 @@ import {
 import { preferredProviderName, providerNamesMatch } from "@/lib/provider-name-match";
 import { compareValues, SortHeader, useSortState } from "@/lib/table-sort";
 import type { MedicalExpense, MedicalTrackerProvider } from "@/lib/types";
-import { Button, Card, CardBody, CardHeader, Input, Select, Spinner } from "@/components/ui";
+import { Button, Input, Select, Spinner } from "@/components/ui";
 
 type SortKey =
   | "providerName"
@@ -134,17 +134,23 @@ function formatDate(value: string | null): string {
   return year && month && day ? `${month}/${day}/${year}` : value;
 }
 
-export function MedicalTracker({
-  caseId,
-  caseNumber,
-  trackedProviders,
-  expenses,
-}: {
-  caseId: string;
-  caseNumber: string;
-  trackedProviders: MedicalTrackerProvider[];
-  expenses: MedicalExpense[];
-}) {
+export type MedicalTrackerHandle = {
+  beginAdd: () => void;
+};
+
+export const MedicalTracker = forwardRef<
+  MedicalTrackerHandle,
+  {
+    caseId: string;
+    caseNumber: string;
+    trackedProviders: MedicalTrackerProvider[];
+    expenses: MedicalExpense[];
+    hideChrome?: boolean;
+  }
+>(function MedicalTracker(
+  { caseId, caseNumber, trackedProviders, expenses, hideChrome = false },
+  ref
+) {
   const rows = useMemo(
     () => mergeProviders(caseId, caseNumber, trackedProviders, expenses),
     [caseId, caseNumber, trackedProviders, expenses]
@@ -164,6 +170,8 @@ export function MedicalTracker({
     setAddingName("");
     setError(null);
   };
+
+  useImperativeHandle(ref, () => ({ beginAdd }), []);
 
   const cancel = () => {
     setEditingKey(null);
@@ -216,20 +224,23 @@ export function MedicalTracker({
   const renderRow = (row: MedicalTrackerProvider, key: string) => {
     const saving = savingKey === key;
     return (
-      <tr key={key} className={row.hasLop === true ? "bg-warning-light/25" : "hover:bg-surface-alt/40"}>
-        <td className="min-w-0 px-2 py-2 align-top">
-          <div className="truncate font-medium text-text" title={row.providerName}>
+      <tr
+        key={key}
+        className={row.hasLop === true ? "bg-primary-light/30" : "hover:bg-surface-alt/50"}
+      >
+        <td className="min-w-0 px-5 py-4 align-middle lg:px-6">
+          <div className="truncate text-[15px] font-medium text-text" title={row.providerName}>
             {row.providerName}
           </div>
           {row.lopFiles.length > 0 && (
-            <div className="mt-1 space-y-0.5">
+            <div className="mt-1.5 space-y-0.5">
               {row.lopFiles.map((file, index) => (
                 <a
                   key={file.fileId || file.path || `${file.url}-${index}`}
                   href={file.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block truncate text-[11px] leading-tight text-primary hover:underline"
+                  className="block truncate text-[12px] leading-tight text-primary hover:underline"
                   title={file.name}
                 >
                   {file.name}
@@ -238,10 +249,10 @@ export function MedicalTracker({
             </div>
           )}
         </td>
-        <td className="px-1.5 py-2 align-top">
+        <td className="px-3 py-4 align-middle">
           <Select
             aria-label={`LOP status for ${row.providerName}`}
-            className="px-1.5 py-1 text-xs"
+            className="border-0 bg-surface-alt/80 px-2 py-1.5 text-xs shadow-none focus:ring-1"
             disabled={saving}
             value={row.hasLop == null ? "" : row.hasLop ? "yes" : "no"}
             onChange={(e) => {
@@ -284,14 +295,14 @@ export function MedicalTracker({
           value={row.billingReceivedDate}
           onChange={(v) => void saveProvider({ ...row, billingReceivedDate: v }, key)}
         />
-        <td className="px-1.5 py-2 align-top">
+        <td className="px-4 py-4 align-middle">
           <div className="flex items-center justify-end gap-1">
             {saving && <Spinner className="h-3.5 w-3.5" />}
             {row.id && (
               <Button
                 size="sm"
                 variant="ghost"
-                className="px-2 text-danger hover:bg-danger-light"
+                className="px-2 text-text-dim hover:text-danger"
                 disabled={saving}
                 onClick={() => void deleteProvider(row, key)}
               >
@@ -304,101 +315,95 @@ export function MedicalTracker({
     );
   };
 
-  return (
-    <Card className="mt-6 border-primary/25">
-      <CardHeader>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-semibold text-text">Medical Tracker</h2>
-            <p className="mt-1 text-sm text-text-muted">
-              Provider status, LOP exposure, treatment completion, and records follow-up.
-            </p>
-          </div>
-          <Button size="sm" onClick={beginAdd}>Add provider</Button>
-        </div>
-        {error && <p className="mt-3 text-sm text-danger">{error}</p>}
-      </CardHeader>
-      <CardBody className="overflow-hidden p-0">
-        <table className="w-full table-fixed text-left text-sm">
-          <colgroup>
-            <col className="w-[20%]" />
-            <col className="w-[8%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[12.5%]" />
-            <col className="w-[9.5%]" />
-          </colgroup>
-          <thead>
-            <tr className="border-b border-border bg-primary-light/40 text-[11px] uppercase leading-tight text-text-muted">
-              <th className="px-2 py-2">
-                <SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              </th>
-              <th className="px-1.5 py-2">
-                <SortHeader label="LOP" field="hasLop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              </th>
-              <th className="px-1.5 py-2" title="Treatment Finished">
-                <SortHeader label="Tx Fin" field="treatmentFinishedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              </th>
-              <th className="px-1.5 py-2" title="Medical Requested">
-                <SortHeader label="Med Req" field="medicalRequestedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              </th>
-              <th className="px-1.5 py-2" title="Medical Received">
-                <SortHeader label="Med Rcv" field="medicalReceivedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              </th>
-              <th className="px-1.5 py-2" title="Billing Requested">
-                <SortHeader label="Bill Req" field="billingRequestedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              </th>
-              <th className="px-1.5 py-2" title="Billing Received">
-                <SortHeader label="Bill Rcv" field="billingReceivedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
-              </th>
-              <th className="px-1.5 py-2 text-right"> </th>
+  const table = (
+    <div className="overflow-hidden rounded-xl">
+      {error && <p className="border-b border-danger/20 bg-danger-light px-6 py-3 text-sm text-danger">{error}</p>}
+      <table className="w-full table-fixed text-left text-sm">
+        <colgroup>
+          <col className="w-[22%]" />
+          <col className="w-[8%]" />
+          <col className="w-[12%]" />
+          <col className="w-[12%]" />
+          <col className="w-[12%]" />
+          <col className="w-[12%]" />
+          <col className="w-[12%]" />
+          <col className="w-[10%]" />
+        </colgroup>
+        <thead>
+          <tr className="bg-primary-light/70 text-[12px] font-medium uppercase tracking-[0.06em] text-navy-light">
+            <th className="px-5 py-3.5 lg:px-6">
+              <SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </th>
+            <th className="px-3 py-3.5">
+              <SortHeader label="LOP" field="hasLop" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </th>
+            <th className="px-3 py-3.5" title="Treatment Finished">
+              <SortHeader label="Tx Fin" field="treatmentFinishedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </th>
+            <th className="px-3 py-3.5" title="Medical Requested">
+              <SortHeader label="Med Req" field="medicalRequestedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </th>
+            <th className="px-3 py-3.5" title="Medical Received">
+              <SortHeader label="Med Rcv" field="medicalReceivedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </th>
+            <th className="px-3 py-3.5" title="Billing Requested">
+              <SortHeader label="Bill Req" field="billingRequestedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </th>
+            <th className="px-3 py-3.5" title="Billing Received">
+              <SortHeader label="Bill Rcv" field="billingReceivedDate" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
+            </th>
+            <th className="px-4 py-3.5 text-right"> </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-border/60">
+          {editingKey === "__new__" && (
+            <tr className="bg-primary-light/20">
+              <td className="px-5 py-4 lg:px-6" colSpan={7}>
+                <Input
+                  autoFocus
+                  value={addingName}
+                  placeholder="Provider name"
+                  className="border-0 bg-white shadow-sm"
+                  onChange={(e) => setAddingName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") void addProvider();
+                    if (e.key === "Escape") cancel();
+                  }}
+                />
+              </td>
+              <td className="px-4 py-4">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    size="sm"
+                    disabled={savingKey === "__new__" || !addingName.trim()}
+                    onClick={() => void addProvider()}
+                  >
+                    {savingKey === "__new__" ? <Spinner className="h-4 w-4" /> : "Add"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={cancel}>
+                    Cancel
+                  </Button>
+                </div>
+              </td>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {editingKey === "__new__" && (
-              <tr>
-                <td className="px-2 py-2" colSpan={7}>
-                  <Input
-                    autoFocus
-                    value={addingName}
-                    placeholder="Provider name"
-                    onChange={(e) => setAddingName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") void addProvider();
-                      if (e.key === "Escape") cancel();
-                    }}
-                  />
-                </td>
-                <td className="px-1.5 py-2">
-                  <div className="flex justify-end gap-1">
-                    <Button
-                      size="sm"
-                      disabled={savingKey === "__new__" || !addingName.trim()}
-                      onClick={() => void addProvider()}
-                    >
-                      {savingKey === "__new__" ? <Spinner className="h-4 w-4" /> : "Add"}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>
-                  </div>
-                </td>
-              </tr>
-            )}
-            {sorted.map((row) => renderRow(row, row.id ?? row.providerName.trim().toLowerCase()))}
-            {!sorted.length && editingKey !== "__new__" && (
-              <tr>
-                <td colSpan={8} className="px-6 py-10 text-center text-text-muted">
-                  No providers yet. Add one now or file a medical invoice to populate the list.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </CardBody>
-    </Card>
+          )}
+          {sorted.map((row) => renderRow(row, row.id ?? row.providerName.trim().toLowerCase()))}
+          {!sorted.length && editingKey !== "__new__" && (
+            <tr>
+              <td colSpan={8} className="px-6 py-14 text-center text-[15px] text-text-muted">
+                No providers yet. Add one or import Dropbox files to populate the tracker.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
-}
+
+  if (hideChrome) return table;
+
+  return table;
+});
 
 function DateCell({
   label,
@@ -412,10 +417,10 @@ function DateCell({
   onChange: (value: string | null) => void;
 }) {
   return (
-    <td className="min-w-0 px-1.5 py-2 align-top">
+    <td className="min-w-0 px-3 py-4 align-middle">
       <Input
         type="date"
-        className="min-w-0 px-1 py-1 text-xs"
+        className="min-w-0 border-0 bg-surface-alt/80 px-2 py-1.5 text-xs shadow-none focus:ring-1"
         disabled={disabled}
         value={value ?? ""}
         aria-label={value ? `${label}: ${formatDate(value)}` : label}

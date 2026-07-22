@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
@@ -16,7 +16,12 @@ import {
 } from "@/lib/supabase/repo";
 import { caseDisplayName } from "@/lib/case-display";
 import { isMedicalPaid, needsMedicalReview } from "@/lib/expense-review";
-import { alignProviderName } from "@/lib/medical-provider-summary";
+import {
+  alignProviderName,
+  buildMedicalProviderSummary,
+  deriveLineAmounts,
+} from "@/lib/medical-provider-summary";
+import { isMedicalImportConfigured } from "@/lib/medical-import-api";
 import { SortHeader, useSortState } from "@/lib/table-sort";
 import type {
   Case,
@@ -29,20 +34,16 @@ import type {
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { ManualMedicalExpenseForm } from "@/components/ManualExpenseForm";
 import { MedicalProviderSummary } from "@/components/MedicalProviderSummary";
-import { MedicalTracker } from "@/components/MedicalTracker";
+import { MedicalTracker, type MedicalTrackerHandle } from "@/components/MedicalTracker";
 import { MedicalFolderImport } from "@/components/MedicalFolderImport";
-import { CaseSummaryCard } from "@/components/CaseSummaryCard";
+import { CaseFinancialHero, StickyCaseStats, StatusDot } from "@/components/CaseFinancialHero";
+import { FinancialSection, SectionDivider } from "@/components/FinancialSection";
 import { CaseExpensesSection } from "@/components/CaseExpensesSection";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
-  Badge,
   Button,
-  Card,
-  CardBody,
-  CardHeader,
   EmptyState,
   Input,
-  PageHeader,
   PageWrapper,
   Select,
   Spinner,
@@ -107,17 +108,20 @@ function sourceFileName(path: string | null): string {
   return parts[parts.length - 1] || path;
 }
 
-function reviewBadgeVariant(status: MedicalExpenseReviewStatus): "warning" | "success" | "default" {
-  if (status === "needs_review" || status === "pending" || status === "in_review") return "warning";
+function reviewStatusKind(
+  status: MedicalExpenseReviewStatus
+): "action" | "success" | "neutral" {
+  if (status === "needs_review" || status === "pending" || status === "in_review") return "action";
   if (status === "reviewed" || status === "approved") return "success";
-  return "default";
+  return "neutral";
 }
 
-function paymentBadgeVariant(status: MedicalExpensePaymentStatus): "warning" | "success" | "primary" | "default" {
-  if (status === "unpaid" || status === "pending_review" || status === "partially_paid") return "warning";
+function paymentStatusKind(
+  status: MedicalExpensePaymentStatus
+): "action" | "success" | "neutral" {
   if (status === "paid" || status === "closed" || status === "waived") return "success";
-  if (status === "reduced") return "primary";
-  return "default";
+  if (status === "unpaid" || status === "pending_review" || status === "partially_paid") return "action";
+  return "neutral";
 }
 
 export default function MedicalExpensesPage() {
@@ -139,6 +143,8 @@ export default function MedicalExpensesPage() {
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const trackerRef = useRef<MedicalTrackerHandle>(null);
 
   useEffect(() => {
     if (!supabaseReady || loading || !user || !caseId) return;
@@ -192,6 +198,13 @@ export default function MedicalExpensesPage() {
   }, [expenses, search, filterReview, filterPayment, sortKey, sortDir]);
 
   const needsReview = useMemo(() => expenses.filter(needsMedicalReview).length, [expenses]);
+
+  const summary = useMemo(() => buildMedicalProviderSummary(expenses), [expenses]);
+
+  const lopProviders = useMemo(
+    () => trackedProviders.filter((p) => p.hasLop === true).length,
+    [trackedProviders]
+  );
 
   const providerNameCandidates = useMemo(
     () => expenses.map((e) => e.providerName.trim() || "Unknown provider"),
@@ -262,238 +275,479 @@ export default function MedicalExpensesPage() {
 
   return (
     <PageWrapper>
-      <nav className="mb-4 text-sm text-text-muted">
+      <nav className="mb-8 text-[13px] text-text-muted">
         <Link href="/" className="hover:text-primary">
           ← Cases
         </Link>
         <span className="mx-2 text-text-dim">/</span>
         <span className="text-text-secondary">{caseTitle}</span>
         <span className="mx-2 text-text-dim">/</span>
-        <span className="font-medium text-text">Financials</span>
+        <span className="text-text">Financials</span>
       </nav>
 
-      {caseRecord && <CaseSummaryCard caseRecord={caseRecord} />}
+      <div className="lg:grid lg:grid-cols-[minmax(0,1fr)_11.5rem] lg:items-start lg:gap-10">
+        <div className="min-w-0 space-y-14">
+          {caseRecord && (
+            <CaseFinancialHero
+              caseRecord={caseRecord}
+              outstanding={summary.totals.outstanding}
+              providerCount={summary.providers.length || trackedProviders.length}
+              needsReview={needsReview}
+              lopProviders={lopProviders}
+              importConfigured={isMedicalImportConfigured() && Boolean(caseRecord.caseNumber)}
+              onImport={() => setImportOpen(true)}
+              onAddProvider={
+                caseRecord.caseNumber
+                  ? () => {
+                      document.getElementById("medical-tracker")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      trackerRef.current?.beginAdd();
+                    }
+                  : undefined
+              }
+            />
+          )}
 
-      <PageHeader
-        className="mt-6"
-        title="Case Financials"
-        subtitle="Medical tracker and invoices first, then vendor case expenses — all on one page."
-      />
+          {err && (
+            <div className="rounded-xl bg-danger-light px-4 py-3 text-sm text-danger">{err}</div>
+          )}
 
-      {err && (
-        <div className="mt-4 rounded-lg border border-danger/30 bg-danger-light px-4 py-3 text-sm text-danger">
-          {err}
-        </div>
-      )}
-
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold text-text">Medical Expenses</h2>
-        <p className="mt-1 text-sm text-text-muted">
-          Track providers and records first, then review financial details from filed medical documents.
-        </p>
-      </div>
-
-      {caseRecord?.caseNumber && (
-        <MedicalFolderImport caseId={caseId} caseNumber={caseRecord.caseNumber} />
-      )}
-
-      {caseRecord?.caseNumber ? (
-        <MedicalTracker
-          caseId={caseId}
-          caseNumber={caseRecord.caseNumber}
-          trackedProviders={trackedProviders}
-          expenses={expenses}
-        />
-      ) : (
-        <Card className="mt-6 border-warning/30">
-          <CardBody className="text-sm text-warning">
-            Add a case number before using the Medical Tracker.
-          </CardBody>
-        </Card>
-      )}
-
-      <MedicalProviderSummary expenses={expenses} needsReview={needsReview} />
-
-      <Card className="mt-6">
-        <CardHeader>
-          <h2 className="text-lg font-semibold text-text">Invoices</h2>
-          <p className="mt-1 text-sm text-text-muted">Individual medical bills and statements — source data for the summary above.</p>
-          <div className="mt-4 flex flex-wrap items-end gap-3">
-            <div className="min-w-[12rem] flex-1">
-              <label className="mb-1 block text-xs font-medium text-text-muted">Search</label>
-              <Input placeholder="Provider, account #, document…" value={search} onChange={(e) => setSearch(e.target.value)} />
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-text-muted">Review</label>
-              <Select className="min-w-[9rem]" value={filterReview} onChange={(e) => setFilterReview(e.target.value as typeof filterReview)}>
-                <option value="all">All</option>
-                <option value="needs_review">Needs Review</option>
-                <option value="reviewed">Reviewed</option>
-              </Select>
-            </div>
-            <div>
-              <label className="mb-1 block text-xs font-medium text-text-muted">Payment</label>
-              <Select className="min-w-[9rem]" value={filterPayment} onChange={(e) => setFilterPayment(e.target.value as typeof filterPayment)}>
-                <option value="all">All</option>
-                {(Object.keys(PAYMENT_STATUS_LABELS) as MedicalExpensePaymentStatus[]).map((s) => (
-                  <option key={s} value={s}>{PAYMENT_STATUS_LABELS[s]}</option>
-                ))}
-              </Select>
-            </div>
-            <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
-              {showAddForm ? "Cancel" : "Add file"}
-            </Button>
-          </div>
-        </CardHeader>
-        {showAddForm && caseRecord?.caseNumber && (
-          <div className="px-6 pb-4">
-            <ManualMedicalExpenseForm
+          {caseRecord?.caseNumber && (
+            <MedicalFolderImport
               caseId={caseId}
               caseNumber={caseRecord.caseNumber}
-              onClose={() => setShowAddForm(false)}
+              open={importOpen}
+              onOpenChange={setImportOpen}
+              hideTrigger
             />
-          </div>
-        )}
-        {showAddForm && !caseRecord?.caseNumber && (
-          <div className="px-6 pb-4 text-sm text-danger">This case has no case number — cannot add a file yet.</div>
-        )}
-        <CardBody className="overflow-hidden p-0">
-          {filtered.length === 0 ? (
-            <div className="px-6 py-12">
-              <EmptyState
-                title="No medical expenses yet"
-                description="Expenses appear when medical financial documents are filed through the document pipeline."
-              />
-            </div>
-          ) : (
-            <table className="w-full table-fixed text-left text-sm">
-              <colgroup>
-                <col className="w-[18%]" />
-                <col className="w-[12%]" />
-                <col className="w-[10%]" />
-                <col className="w-[10%]" />
-                <col className="w-[9%]" />
-                <col className="w-[9%]" />
-                <col className="w-[9%]" />
-                <col className="w-[10%]" />
-                <col className="w-[8%]" />
-                <col className="w-[5%]" />
-                <col className="w-[5%]" />
-              </colgroup>
-              <thead>
-                <tr className="border-b border-border bg-surface-alt/60 text-[11px] uppercase tracking-wide">
-                  <th className="px-2 py-2"><SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-2 py-2"><SortHeader label="Type" field="documentType" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-2 py-2"><SortHeader label="Acct #" field="accountNumber" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-2 py-2"><SortHeader label="DOS" field="dateOfService" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-2 py-2 text-right"><SortHeader label="Original" field="originalCharges" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
-                  <th className="px-2 py-2 text-right"><SortHeader label="Balance" field="currentBalance" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
-                  <th className="px-2 py-2 text-right"><SortHeader label="Final" field="finalPayAmount" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} align="right" /></th>
-                  <th className="px-2 py-2"><SortHeader label="Payment" field="paymentStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-2 py-2"><SortHeader label="Review" field="reviewStatus" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-2 py-2"><SortHeader label="Conf" field="extractionConfidence" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} /></th>
-                  <th className="px-2 py-2"> </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {filtered.map((expense) => {
-                  const isEditing = editingId === expense.id;
-                  const row = isEditing ? { ...expense, ...editDraft } : expense;
-                  const displayProvider = isEditing
-                    ? row.providerName
-                    : alignProviderName(row.providerName, providerNameCandidates);
-                  const sourceLabel = sourceFileName(row.dropboxFilePath);
-                  return (
-                    <tr key={expense.id} className={needsMedicalReview(expense) ? "bg-warning-light/20 hover:bg-warning-light/40" : "hover:bg-surface-alt/40"}>
-                      <td className="min-w-0 px-2 py-2 align-top">
-                        {isEditing ? (
-                          <Input className="px-1.5 py-1 text-xs" value={row.providerName} onChange={(e) => setEditDraft((d) => ({ ...d, providerName: e.target.value }))} />
-                        ) : (
-                          <>
-                            <span className="block truncate font-medium" title={displayProvider}>{displayProvider}</span>
-                            {row.dropboxPermalink ? (
-                              <a
-                                href={row.dropboxPermalink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-0.5 block truncate text-[11px] leading-tight text-primary hover:underline"
-                                title={row.dropboxFilePath ?? sourceLabel}
-                              >
-                                {sourceLabel}
-                              </a>
-                            ) : sourceLabel !== "—" ? (
-                              <span className="mt-0.5 block truncate text-[11px] leading-tight text-text-dim" title={row.dropboxFilePath ?? undefined}>
-                                {sourceLabel}
-                              </span>
-                            ) : null}
-                          </>
-                        )}
-                      </td>
-                      <td className="min-w-0 px-2 py-2">
-                        {isEditing ? (
-                          <Select className="px-1.5 py-1 text-xs" value={row.documentType} onChange={(e) => setEditDraft((d) => ({ ...d, documentType: e.target.value as MedicalExpenseDocumentType }))}>
-                            {(Object.keys(DOCUMENT_TYPE_LABELS) as MedicalExpenseDocumentType[]).map((t) => (
-                              <option key={t} value={t}>{DOCUMENT_TYPE_LABELS[t]}</option>
-                            ))}
-                          </Select>
-                        ) : (
-                          <span className="block truncate" title={DOCUMENT_TYPE_LABELS[row.documentType] ?? row.documentType}>
-                            {DOCUMENT_TYPE_LABELS[row.documentType] ?? row.documentType}
-                          </span>
-                        )}
-                      </td>
-                      <td className="min-w-0 truncate px-2 py-2" title={row.accountNumber ?? undefined}>{isEditing ? <Input className="px-1.5 py-1 text-xs" value={row.accountNumber ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, accountNumber: e.target.value || null }))} /> : row.accountNumber ?? "—"}</td>
-                      <td className="px-2 py-2">{isEditing ? <Input type="date" className="px-1 py-1 text-xs" value={row.dateOfService ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, dateOfService: e.target.value || null }))} /> : row.dateOfService ?? "—"}</td>
-                      <td className="px-2 py-2 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="px-1.5 py-1 text-right text-xs" value={row.originalCharges ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, originalCharges: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.originalCharges)}</td>
-                      <td className="px-2 py-2 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="px-1.5 py-1 text-right text-xs" value={row.currentBalance ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, currentBalance: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.currentBalance)}</td>
-                      <td className="px-2 py-2 text-right tabular-nums">{isEditing ? <Input type="number" step="0.01" className="px-1.5 py-1 text-right text-xs" value={row.finalPayAmount ?? ""} onChange={(e) => setEditDraft((d) => ({ ...d, finalPayAmount: e.target.value ? Number(e.target.value) : null }))} /> : formatCurrency(row.finalPayAmount)}</td>
-                      <td className="min-w-0 px-2 py-2">
-                        {isEditing ? (
-                          <Select className="px-1.5 py-1 text-xs" value={row.paymentStatus} onChange={(e) => setEditDraft((d) => ({ ...d, paymentStatus: e.target.value as MedicalExpensePaymentStatus }))}>
-                            {(Object.keys(PAYMENT_STATUS_LABELS) as MedicalExpensePaymentStatus[]).map((s) => (
-                              <option key={s} value={s}>{PAYMENT_STATUS_LABELS[s]}</option>
-                            ))}
-                          </Select>
-                        ) : (
-                          <Badge variant={paymentBadgeVariant(row.paymentStatus)}>{PAYMENT_STATUS_LABELS[row.paymentStatus]}</Badge>
-                        )}
-                      </td>
-                      <td className="min-w-0 px-2 py-2">
-                        <Badge variant={reviewBadgeVariant(row.reviewStatus)}>{REVIEW_STATUS_LABELS[row.reviewStatus]}</Badge>
-                      </td>
-                      <td className="px-2 py-2 tabular-nums text-text-secondary">
-                        {row.extractionConfidence != null ? formatPercent(row.extractionConfidence) : "—"}
-                      </td>
-                      <td className="px-1 py-2">
-                        <div className="flex flex-col items-stretch gap-1">
-                          {isEditing ? (
-                            <>
-                              <Button size="sm" className="px-2" disabled={saving} onClick={() => void saveEdit()}>{saving ? <Spinner className="h-4 w-4" /> : "Save"}</Button>
-                              <Button size="sm" variant="ghost" className="px-2" disabled={saving} onClick={cancelEdit}>Cancel</Button>
-                            </>
-                          ) : (
-                            <>
-                              <Button size="sm" variant="secondary" className="px-2" onClick={() => startEdit(expense)}>Edit</Button>
-                              {needsMedicalReview(expense) && (
-                                <Button size="sm" variant="ghost" className="px-2" disabled={saving} onClick={() => void markReviewed(expense.id)}>Reviewed</Button>
-                              )}
-                              {!isMedicalPaid(expense) && (
-                                <Button size="sm" variant="ghost" className="px-2" disabled={saving} onClick={() => void markPaid(expense.id)}>Paid</Button>
-                              )}
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           )}
-        </CardBody>
-      </Card>
 
-      <CaseExpensesSection caseId={caseId} caseNumber={caseRecord?.caseNumber ?? null} />
+          <div>
+            <SectionDivider label="Medical Tracker" />
+            <FinancialSection
+              id="medical-tracker"
+              level={2}
+              title="Medical Tracker"
+              description="Track provider progression from LOP → treatment → final bill."
+              className="mt-4"
+            >
+              {caseRecord?.caseNumber ? (
+                <div className="-mx-6 -mb-5 lg:-mx-8 lg:-mb-6">
+                  <MedicalTracker
+                    ref={trackerRef}
+                    caseId={caseId}
+                    caseNumber={caseRecord.caseNumber}
+                    trackedProviders={trackedProviders}
+                    expenses={expenses}
+                    hideChrome
+                  />
+                </div>
+              ) : (
+                <p className="text-[15px] text-warning">Add a case number before using the Medical Tracker.</p>
+              )}
+            </FinancialSection>
+          </div>
+
+          <div>
+            <SectionDivider label="Financial Summary" />
+            <FinancialSection
+              id="financial-summary"
+              level={3}
+              title="Financial Summary"
+              description="Outstanding balances rolled up by provider."
+              className="mt-4"
+            >
+              <MedicalProviderSummary expenses={expenses} needsReview={needsReview} />
+            </FinancialSection>
+          </div>
+
+          <div>
+            <SectionDivider label="Invoices" />
+            <FinancialSection
+              id="invoices"
+              level={4}
+              title="Invoices"
+              description="Review individual medical bills — which provider, how much, what needs action."
+              className="mt-4"
+              actions={
+                <Button size="sm" variant="secondary" onClick={() => setShowAddForm((v) => !v)}>
+                  {showAddForm ? "Cancel" : "Upload Invoice"}
+                </Button>
+              }
+            >
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-48 flex-1">
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
+                    Search
+                  </label>
+                  <Input
+                    className="border-0 bg-surface-alt/70 shadow-none focus:ring-1"
+                    placeholder="Provider, account #…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
+                    Review
+                  </label>
+                  <Select
+                    className="min-w-36 border-0 bg-surface-alt/70 shadow-none focus:ring-1"
+                    value={filterReview}
+                    onChange={(e) => setFilterReview(e.target.value as typeof filterReview)}
+                  >
+                    <option value="all">All</option>
+                    <option value="needs_review">Needs Review</option>
+                    <option value="reviewed">Reviewed</option>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
+                    Payment
+                  </label>
+                  <Select
+                    className="min-w-36 border-0 bg-surface-alt/70 shadow-none focus:ring-1"
+                    value={filterPayment}
+                    onChange={(e) => setFilterPayment(e.target.value as typeof filterPayment)}
+                  >
+                    <option value="all">All</option>
+                    {(Object.keys(PAYMENT_STATUS_LABELS) as MedicalExpensePaymentStatus[]).map((s) => (
+                      <option key={s} value={s}>
+                        {PAYMENT_STATUS_LABELS[s]}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+
+              {showAddForm && caseRecord?.caseNumber && (
+                <div className="mt-5">
+                  <ManualMedicalExpenseForm
+                    caseId={caseId}
+                    caseNumber={caseRecord.caseNumber}
+                    onClose={() => setShowAddForm(false)}
+                  />
+                </div>
+              )}
+              {showAddForm && !caseRecord?.caseNumber && (
+                <p className="mt-4 text-sm text-danger">This case has no case number — cannot upload yet.</p>
+              )}
+
+              <div className="mt-6 -mx-6 overflow-hidden lg:-mx-8">
+                {filtered.length === 0 ? (
+                  <div className="px-6 py-12 lg:px-8">
+                    <EmptyState
+                      title="No invoices yet"
+                      description="Import Dropbox files or upload an invoice to get started."
+                    />
+                  </div>
+                ) : (
+                  <table className="w-full table-fixed text-left text-sm">
+                    <colgroup>
+                      <col className="w-[28%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[14%]" />
+                      <col className="w-[18%]" />
+                      <col className="w-[12%]" />
+                    </colgroup>
+                    <thead>
+                      <tr className="text-[12px] font-medium uppercase tracking-[0.06em] text-text-dim">
+                        <th className="px-6 py-3 lg:px-8">
+                          <SortHeader
+                            label="Provider"
+                            field="providerName"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={toggleSort}
+                          />
+                        </th>
+                        <th className="px-3 py-3 text-right">
+                          <SortHeader
+                            label="Outstanding"
+                            field="currentBalance"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={toggleSort}
+                            align="right"
+                          />
+                        </th>
+                        <th className="px-3 py-3">
+                          <SortHeader
+                            label="Review"
+                            field="reviewStatus"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={toggleSort}
+                          />
+                        </th>
+                        <th className="px-3 py-3">
+                          <SortHeader
+                            label="Payment"
+                            field="paymentStatus"
+                            sortKey={sortKey}
+                            sortDir={sortDir}
+                            onSort={toggleSort}
+                          />
+                        </th>
+                        <th className="px-3 py-3">Details</th>
+                        <th className="px-4 py-3 text-right lg:px-8"> </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/50">
+                      {filtered.map((expense) => {
+                        const isEditing = editingId === expense.id;
+                        const row = isEditing ? { ...expense, ...editDraft } : expense;
+                        const displayProvider = isEditing
+                          ? row.providerName
+                          : alignProviderName(row.providerName, providerNameCandidates);
+                        const sourceLabel = sourceFileName(row.dropboxFilePath);
+                        const amounts = deriveLineAmounts(expense);
+                        return (
+                          <tr
+                            key={expense.id}
+                            className={
+                              needsMedicalReview(expense)
+                                ? "bg-warning-light/25 hover:bg-warning-light/40"
+                                : "hover:bg-surface-alt/40"
+                            }
+                          >
+                            <td className="min-w-0 px-6 py-4 align-top lg:px-8">
+                              {isEditing ? (
+                                <Input
+                                  className="border-0 bg-surface-alt px-2 py-1.5 text-sm"
+                                  value={row.providerName}
+                                  onChange={(e) =>
+                                    setEditDraft((d) => ({ ...d, providerName: e.target.value }))
+                                  }
+                                />
+                              ) : (
+                                <>
+                                  <span
+                                    className="block truncate text-[15px] font-medium text-text"
+                                    title={displayProvider}
+                                  >
+                                    {displayProvider}
+                                  </span>
+                                  {row.dropboxPermalink ? (
+                                    <a
+                                      href={row.dropboxPermalink}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="mt-1 block truncate text-[12px] text-primary hover:underline"
+                                      title={row.dropboxFilePath ?? sourceLabel}
+                                    >
+                                      {sourceLabel}
+                                    </a>
+                                  ) : sourceLabel !== "—" ? (
+                                    <span className="mt-1 block truncate text-[12px] text-text-dim">
+                                      {sourceLabel}
+                                    </span>
+                                  ) : null}
+                                </>
+                              )}
+                            </td>
+                            <td className="px-3 py-4 text-right align-top">
+                              {isEditing ? (
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  className="border-0 bg-surface-alt px-2 py-1.5 text-right text-sm"
+                                  value={row.currentBalance ?? ""}
+                                  onChange={(e) =>
+                                    setEditDraft((d) => ({
+                                      ...d,
+                                      currentBalance: e.target.value ? Number(e.target.value) : null,
+                                    }))
+                                  }
+                                />
+                              ) : (
+                                <span className="text-base font-semibold tabular-nums text-text">
+                                  {formatCurrency(amounts.outstanding)}
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-4 align-top">
+                              <StatusDot kind={reviewStatusKind(row.reviewStatus)}>
+                                {REVIEW_STATUS_LABELS[row.reviewStatus]}
+                              </StatusDot>
+                            </td>
+                            <td className="min-w-0 px-3 py-4 align-top">
+                              {isEditing ? (
+                                <Select
+                                  className="border-0 bg-surface-alt px-2 py-1.5 text-xs"
+                                  value={row.paymentStatus}
+                                  onChange={(e) =>
+                                    setEditDraft((d) => ({
+                                      ...d,
+                                      paymentStatus: e.target.value as MedicalExpensePaymentStatus,
+                                    }))
+                                  }
+                                >
+                                  {(Object.keys(PAYMENT_STATUS_LABELS) as MedicalExpensePaymentStatus[]).map(
+                                    (s) => (
+                                      <option key={s} value={s}>
+                                        {PAYMENT_STATUS_LABELS[s]}
+                                      </option>
+                                    )
+                                  )}
+                                </Select>
+                              ) : (
+                                <StatusDot kind={paymentStatusKind(row.paymentStatus)}>
+                                  {PAYMENT_STATUS_LABELS[row.paymentStatus]}
+                                </StatusDot>
+                              )}
+                            </td>
+                            <td className="px-3 py-4 align-top text-[12px] leading-relaxed text-text-dim">
+                              {isEditing ? (
+                                <div className="space-y-2">
+                                  <Select
+                                    className="border-0 bg-surface-alt px-2 py-1 text-xs"
+                                    value={row.documentType}
+                                    onChange={(e) =>
+                                      setEditDraft((d) => ({
+                                        ...d,
+                                        documentType: e.target.value as MedicalExpenseDocumentType,
+                                      }))
+                                    }
+                                  >
+                                    {(Object.keys(DOCUMENT_TYPE_LABELS) as MedicalExpenseDocumentType[]).map(
+                                      (t) => (
+                                        <option key={t} value={t}>
+                                          {DOCUMENT_TYPE_LABELS[t]}
+                                        </option>
+                                      )
+                                    )}
+                                  </Select>
+                                  <Input
+                                    className="border-0 bg-surface-alt px-2 py-1 text-xs"
+                                    placeholder="Account #"
+                                    value={row.accountNumber ?? ""}
+                                    onChange={(e) =>
+                                      setEditDraft((d) => ({
+                                        ...d,
+                                        accountNumber: e.target.value || null,
+                                      }))
+                                    }
+                                  />
+                                  <Input
+                                    type="date"
+                                    className="border-0 bg-surface-alt px-2 py-1 text-xs"
+                                    value={row.dateOfService ?? ""}
+                                    onChange={(e) =>
+                                      setEditDraft((d) => ({
+                                        ...d,
+                                        dateOfService: e.target.value || null,
+                                      }))
+                                    }
+                                  />
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    className="border-0 bg-surface-alt px-2 py-1 text-xs"
+                                    placeholder="Original"
+                                    value={row.originalCharges ?? ""}
+                                    onChange={(e) =>
+                                      setEditDraft((d) => ({
+                                        ...d,
+                                        originalCharges: e.target.value ? Number(e.target.value) : null,
+                                      }))
+                                    }
+                                  />
+                                  <Input
+                                    type="number"
+                                    step="0.01"
+                                    className="border-0 bg-surface-alt px-2 py-1 text-xs"
+                                    placeholder="Final"
+                                    value={row.finalPayAmount ?? ""}
+                                    onChange={(e) =>
+                                      setEditDraft((d) => ({
+                                        ...d,
+                                        finalPayAmount: e.target.value ? Number(e.target.value) : null,
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              ) : (
+                                <>
+                                  <div>{DOCUMENT_TYPE_LABELS[row.documentType] ?? row.documentType}</div>
+                                  <div className="mt-0.5">
+                                    {row.dateOfService ?? "No DOS"}
+                                    {row.accountNumber ? ` · #${row.accountNumber}` : ""}
+                                  </div>
+                                  <div className="mt-0.5 tabular-nums">
+                                    Charge {formatCurrency(row.originalCharges)}
+                                    {row.extractionConfidence != null
+                                      ? ` · ${formatPercent(row.extractionConfidence)}`
+                                      : ""}
+                                  </div>
+                                </>
+                              )}
+                            </td>
+                            <td className="px-4 py-4 align-top lg:px-8">
+                              <div className="flex flex-col items-end gap-1">
+                                {isEditing ? (
+                                  <>
+                                    <Button size="sm" disabled={saving} onClick={() => void saveEdit()}>
+                                      {saving ? <Spinner className="h-4 w-4" /> : "Save"}
+                                    </Button>
+                                    <Button size="sm" variant="ghost" disabled={saving} onClick={cancelEdit}>
+                                      Cancel
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Button size="sm" variant="ghost" onClick={() => startEdit(expense)}>
+                                      Edit
+                                    </Button>
+                                    {needsMedicalReview(expense) && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={saving}
+                                        onClick={() => void markReviewed(expense.id)}
+                                      >
+                                        Reviewed
+                                      </Button>
+                                    )}
+                                    {!isMedicalPaid(expense) && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        disabled={saving}
+                                        onClick={() => void markPaid(expense.id)}
+                                      >
+                                        Paid
+                                      </Button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </FinancialSection>
+          </div>
+
+          <div>
+            <SectionDivider label="Case Expenses" />
+            <div className="mt-4">
+              <CaseExpensesSection caseId={caseId} caseNumber={caseRecord?.caseNumber ?? null} />
+            </div>
+          </div>
+        </div>
+
+        <StickyCaseStats
+          outstanding={summary.totals.outstanding}
+          providerCount={summary.providers.length || trackedProviders.length}
+          needsReview={needsReview}
+          lopProviders={lopProviders}
+        />
+      </div>
     </PageWrapper>
   );
 }

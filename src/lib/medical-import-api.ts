@@ -5,7 +5,9 @@ export interface MedicalImportFolderPreview {
   path: string;
   lopFiles: number;
   medicalFiles: number;
+  expenseFiles: number;
   providerFolders: string[];
+  vendorFolders: string[];
 }
 
 export interface MedicalImportJob {
