@@ -104,9 +104,17 @@ export function PageWrapper({ children, className = "" }: { children: ReactNode;
   return <div className={`mx-auto max-w-[1280px] px-6 py-8 lg:px-8 lg:py-10 ${className}`}>{children}</div>;
 }
 
-export function PageHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+export function PageHeader({
+  title,
+  subtitle,
+  className = "",
+}: {
+  title: string;
+  subtitle?: string;
+  className?: string;
+}) {
   return (
-    <div>
+    <div className={className}>
       <h1 className="text-2xl font-semibold tracking-tight text-text lg:text-3xl">{title}</h1>
       {subtitle && <p className="mt-1 text-sm text-text-muted">{subtitle}</p>}
     </div>

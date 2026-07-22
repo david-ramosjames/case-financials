@@ -6,12 +6,15 @@ import type {
   CaseExpenseDocumentType,
   CaseExpensePaymentStatus,
   CaseExpenseReviewStatus,
+  CaseSlackChannel,
+  Contact,
   MedicalExpense,
   MedicalExpenseDocumentType,
   MedicalExpensePaymentStatus,
   MedicalExpenseReviewStatus,
   MedicalTrackerProvider,
 } from "@/lib/types";
+import { caseNumberLookupKeys } from "@/lib/case-display";
 
 type Unsubscribe = () => void;
 
@@ -39,7 +42,29 @@ function caseFromRow(r: Record<string, unknown>): Case {
     clientName: r.client_name as string,
     caseNumber: (r.case_number as string) ?? null,
     causeNumber: (r.cause_number as string) ?? null,
+    dateOfIncident: (r.date_of_incident as string) ?? null,
     status: r.status as Case["status"],
+    assignedContactIds: ((r.assigned_contact_ids as string[]) ?? []).map(String),
+  };
+}
+
+const CASE_SELECT =
+  "id,name,client_name,case_number,cause_number,date_of_incident,status,assigned_contact_ids";
+
+function contactFromRow(r: Record<string, unknown>): Contact {
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    email: (r.email as string) ?? "",
+    role: r.role as Contact["role"],
+  };
+}
+
+function slackChannelFromRow(r: Record<string, unknown>): CaseSlackChannel {
+  return {
+    caseNumber: String(r.case_number ?? ""),
+    slackChannelId: String(r.slack_channel_id ?? ""),
+    slackChannelName: (r.slack_channel_name as string | null) ?? null,
   };
 }
 
@@ -94,7 +119,7 @@ function medicalExpenseToRow(patch: Partial<MedicalExpense>): Record<string, unk
 export async function fetchCases(supabase: SupabaseClient): Promise<Case[]> {
   const { data, error } = await supabase
     .from("cases")
-    .select("id,name,client_name,case_number,cause_number,status")
+    .select(CASE_SELECT)
     .eq("status", "active")
     .order("updated_at", { ascending: false });
   if (error) throw error;
@@ -104,12 +129,58 @@ export async function fetchCases(supabase: SupabaseClient): Promise<Case[]> {
 export async function fetchCase(supabase: SupabaseClient, caseId: string): Promise<Case | null> {
   const { data, error } = await supabase
     .from("cases")
-    .select("id,name,client_name,case_number,cause_number,status")
+    .select(CASE_SELECT)
     .eq("id", caseId)
     .maybeSingle();
   if (error) throw error;
   if (!data) return null;
   return caseFromRow(data as Record<string, unknown>);
+}
+
+/** Lookup Slack channel for a case by firm case number. */
+export async function fetchSlackChannelForCase(
+  supabase: SupabaseClient,
+  caseRecord: Pick<Case, "caseNumber" | "causeNumber">
+): Promise<CaseSlackChannel | null> {
+  const candidates = caseNumberLookupKeys(caseRecord);
+  if (candidates.length === 0) return null;
+
+  const { data, error } = await supabase
+    .from("case_slack_channels")
+    .select("case_number, slack_channel_id, slack_channel_name")
+    .in("case_number", candidates)
+    .limit(10);
+  if (error) throw error;
+  if (!data?.length) return null;
+
+  const byKey = new Map(
+    data.map((row) => [String((row as { case_number: string }).case_number), row])
+  );
+  for (const key of candidates) {
+    const row = byKey.get(key);
+    if (row) return slackChannelFromRow(row as Record<string, unknown>);
+  }
+  return slackChannelFromRow(data[0] as Record<string, unknown>);
+}
+
+export async function fetchContactsByIds(
+  supabase: SupabaseClient,
+  ids: string[]
+): Promise<Contact[]> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  if (!unique.length) return [];
+  const { data, error } = await supabase
+    .from("contacts")
+    .select("id, name, email, role")
+    .in("id", unique);
+  if (error) throw error;
+  const byId = new Map(
+    (data ?? []).map((r) => {
+      const contact = contactFromRow(r as Record<string, unknown>);
+      return [contact.id, contact] as const;
+    })
+  );
+  return unique.map((id) => byId.get(id)).filter((c): c is Contact => Boolean(c));
 }
 
 export function subscribeCase(

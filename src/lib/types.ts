@@ -4,7 +4,23 @@ export interface Case {
   clientName: string;
   caseNumber: string | null;
   causeNumber: string | null;
+  /** ISO date YYYY-MM-DD */
+  dateOfIncident: string | null;
   status: "active" | "archived";
+  assignedContactIds: string[];
+}
+
+export interface Contact {
+  id: string;
+  name: string;
+  email: string;
+  role: "attorney" | "paralegal" | "legal_assistant" | "other";
+}
+
+export interface CaseSlackChannel {
+  caseNumber: string;
+  slackChannelId: string;
+  slackChannelName: string | null;
 }
 
 export type MedicalExpenseDocumentType =

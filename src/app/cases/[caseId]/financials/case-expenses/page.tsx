@@ -29,6 +29,7 @@ import { compareValues, SortHeader, useSortState } from "@/lib/table-sort";
 import type { Case, CaseExpense, CaseExpenseDocumentType, CaseExpensePaymentStatus } from "@/lib/types";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { ManualCaseExpenseForm } from "@/components/ManualExpenseForm";
+import { CaseSummaryCard } from "@/components/CaseSummaryCard";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   Badge,
@@ -180,7 +181,10 @@ export default function CaseExpensesPage() {
         <span className="font-medium text-text">Case Expenses</span>
       </nav>
 
+      {caseRecord && <CaseSummaryCard caseRecord={caseRecord} />}
+
       <PageHeader
+        className="mt-6"
         title="Case Expenses"
         subtitle="Vendor invoices and case costs from the Expenses folder. Separate from medical provider billing."
       />

@@ -31,6 +31,7 @@ import { ManualMedicalExpenseForm } from "@/components/ManualExpenseForm";
 import { MedicalProviderSummary } from "@/components/MedicalProviderSummary";
 import { MedicalTracker } from "@/components/MedicalTracker";
 import { MedicalFolderImport } from "@/components/MedicalFolderImport";
+import { CaseSummaryCard } from "@/components/CaseSummaryCard";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   Badge,
@@ -270,7 +271,10 @@ export default function MedicalExpensesPage() {
         <span className="font-medium text-text">Medical Expenses</span>
       </nav>
 
+      {caseRecord && <CaseSummaryCard caseRecord={caseRecord} />}
+
       <PageHeader
+        className="mt-6"
         title="Medical Expenses"
         subtitle="Track providers and records first, then review financial details from filed documents."
       />
