@@ -204,6 +204,15 @@ export function subscribeMedicalExpensesForCase(
 }
 
 function medicalTrackerProviderFromRow(r: Record<string, unknown>): MedicalTrackerProvider {
+  const lopFiles = Array.isArray(r.lop_files)
+    ? r.lop_files.filter(
+        (file): file is MedicalTrackerProvider["lopFiles"][number] =>
+          Boolean(file) &&
+          typeof file === "object" &&
+          typeof (file as { name?: unknown }).name === "string" &&
+          typeof (file as { url?: unknown }).url === "string"
+      )
+    : [];
   return {
     id: r.id as string,
     caseId: r.case_id as string,
@@ -211,6 +220,7 @@ function medicalTrackerProviderFromRow(r: Record<string, unknown>): MedicalTrack
     providerId: (r.provider_id as string) ?? null,
     providerName: r.provider_name as string,
     hasLop: r.has_lop == null ? null : Boolean(r.has_lop),
+    lopFiles,
     treatmentFinishedDate: (r.treatment_finished_date as string) ?? null,
     medicalRequestedDate: (r.medical_requested_date as string) ?? null,
     medicalReceivedDate: (r.medical_received_date as string) ?? null,
@@ -273,6 +283,7 @@ export async function saveMedicalTrackerProvider(
     provider_id: provider.providerId ?? null,
     provider_name: providerName,
     has_lop: provider.hasLop ?? null,
+    lop_files: provider.lopFiles ?? [],
     treatment_finished_date: provider.treatmentFinishedDate || null,
     medical_requested_date: provider.medicalRequestedDate || null,
     medical_received_date: provider.medicalReceivedDate || null,

@@ -69,6 +69,7 @@ export interface MedicalTrackerProvider {
   providerId: string | null;
   providerName: string;
   hasLop: boolean | null;
+  lopFiles: MedicalTrackerLopFile[];
   treatmentFinishedDate: string | null;
   medicalRequestedDate: string | null;
   medicalReceivedDate: string | null;
@@ -76,6 +77,13 @@ export interface MedicalTrackerProvider {
   billingReceivedDate: string | null;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface MedicalTrackerLopFile {
+  name: string;
+  url: string;
+  path: string;
+  fileId: string | null;
 }
 
 export type CaseExpenseDocumentType =

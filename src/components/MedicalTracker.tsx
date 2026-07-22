@@ -6,7 +6,7 @@ import { saveMedicalTrackerProvider } from "@/lib/supabase/repo";
 import { preferredProviderName, providerNamesMatch } from "@/lib/provider-name-match";
 import { compareValues, SortHeader, useSortState } from "@/lib/table-sort";
 import type { MedicalExpense, MedicalTrackerProvider } from "@/lib/types";
-import { Badge, Button, Card, CardBody, CardHeader, Input, Select, Spinner } from "@/components/ui";
+import { Button, Card, CardBody, CardHeader, Input, Select, Spinner } from "@/components/ui";
 
 type SortKey =
   | "providerName"
@@ -30,6 +30,7 @@ function blankProvider(
     providerId,
     providerName,
     hasLop: null,
+    lopFiles: [],
     treatmentFinishedDate: null,
     medicalRequestedDate: null,
     medicalReceivedDate: null,
@@ -62,6 +63,7 @@ function mergeProviderRows(a: MedicalTrackerProvider, b: MedicalTrackerProvider)
     ...base,
     providerName: preferredProviderName(a.providerName, b.providerName),
     providerId: base.providerId ?? other.providerId,
+    lopFiles: mergeLopFiles(a.lopFiles, b.lopFiles),
     hasLop:
       a.hasLop === true || b.hasLop === true
         ? true
@@ -74,6 +76,18 @@ function mergeProviderRows(a: MedicalTrackerProvider, b: MedicalTrackerProvider)
     billingRequestedDate: base.billingRequestedDate ?? other.billingRequestedDate,
     billingReceivedDate: base.billingReceivedDate ?? other.billingReceivedDate,
   };
+}
+
+function mergeLopFiles(
+  a: MedicalTrackerProvider["lopFiles"],
+  b: MedicalTrackerProvider["lopFiles"]
+): MedicalTrackerProvider["lopFiles"] {
+  const files = new Map<string, MedicalTrackerProvider["lopFiles"][number]>();
+  for (const file of [...a, ...b]) {
+    const key = file.fileId || file.path || file.url;
+    if (key) files.set(key, file);
+  }
+  return [...files.values()];
 }
 
 function mergeProviders(
@@ -138,96 +152,92 @@ export function MedicalTracker({
     [rows, sortKey, sortDir]
   );
   const [editingKey, setEditingKey] = useState<string | null>(null);
-  const [draft, setDraft] = useState<MedicalTrackerProvider | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [addingName, setAddingName] = useState("");
+  const [savingKey, setSavingKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const beginEdit = (row: MedicalTrackerProvider) => {
-    setEditingKey(row.id ?? row.providerName.trim().toLowerCase());
-    setDraft({ ...row });
-    setError(null);
-  };
 
   const beginAdd = () => {
     setEditingKey("__new__");
-    setDraft(blankProvider(caseId, caseNumber));
+    setAddingName("");
     setError(null);
   };
 
   const cancel = () => {
     setEditingKey(null);
-    setDraft(null);
+    setAddingName("");
     setError(null);
   };
 
-  const save = async () => {
-    if (!draft) return;
-    setSaving(true);
+  const saveProvider = async (
+    provider: MedicalTrackerProvider,
+    key: string
+  ): Promise<boolean> => {
+    setSavingKey(key);
     setError(null);
     try {
-      await saveMedicalTrackerProvider(getBrowserSupabase(), draft);
-      cancel();
+      await saveMedicalTrackerProvider(getBrowserSupabase(), provider);
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not save provider");
+      return false;
     } finally {
-      setSaving(false);
+      setSavingKey(null);
+    }
+  };
+
+  const addProvider = async () => {
+    const providerName = addingName.trim();
+    if (!providerName) return;
+    if (await saveProvider(blankProvider(caseId, caseNumber, providerName), "__new__")) {
+      cancel();
     }
   };
 
   const renderRow = (row: MedicalTrackerProvider, key: string) => {
-    const editing = editingKey === key;
-    const value = editing && draft ? draft : row;
+    const saving = savingKey === key;
     return (
-      <tr key={key} className={value.hasLop === true ? "bg-warning-light/25" : "hover:bg-surface-alt/40"}>
+      <tr key={key} className={row.hasLop === true ? "bg-warning-light/25" : "hover:bg-surface-alt/40"}>
         <td className="px-3 py-2">
-          {editing ? (
-            <Input
-              value={value.providerName}
-              placeholder="Provider name"
-              onChange={(e) => setDraft((d) => d && ({ ...d, providerName: e.target.value }))}
-            />
-          ) : (
-            <span className="font-medium text-text">{value.providerName}</span>
-          )}
-        </td>
-        <td className="px-3 py-2">
-          {editing ? (
-            <Select
-              value={value.hasLop == null ? "" : value.hasLop ? "yes" : "no"}
-              onChange={(e) =>
-                setDraft((d) =>
-                  d && ({ ...d, hasLop: e.target.value === "" ? null : e.target.value === "yes" })
-                )
-              }
-            >
-              <option value="">Unknown</option>
-              <option value="yes">Yes</option>
-              <option value="no">No</option>
-            </Select>
-          ) : value.hasLop === true ? (
-            <Badge variant="warning">Yes</Badge>
-          ) : value.hasLop === false ? (
-            <Badge>No</Badge>
-          ) : (
-            <Badge variant="warning">Unknown</Badge>
-          )}
-        </td>
-        <DateCell editing={editing} value={value.treatmentFinishedDate} onChange={(v) => setDraft((d) => d && ({ ...d, treatmentFinishedDate: v }))} />
-        <DateCell editing={editing} value={value.medicalRequestedDate} onChange={(v) => setDraft((d) => d && ({ ...d, medicalRequestedDate: v }))} />
-        <DateCell editing={editing} value={value.medicalReceivedDate} onChange={(v) => setDraft((d) => d && ({ ...d, medicalReceivedDate: v }))} />
-        <DateCell editing={editing} value={value.billingRequestedDate} onChange={(v) => setDraft((d) => d && ({ ...d, billingRequestedDate: v }))} />
-        <DateCell editing={editing} value={value.billingReceivedDate} onChange={(v) => setDraft((d) => d && ({ ...d, billingReceivedDate: v }))} />
-        <td className="px-3 py-2">
-          {editing ? (
-            <div className="flex gap-1">
-              <Button size="sm" disabled={saving || !value.providerName.trim()} onClick={() => void save()}>
-                {saving ? <Spinner className="h-4 w-4" /> : "Save"}
-              </Button>
-              <Button size="sm" variant="ghost" disabled={saving} onClick={cancel}>Cancel</Button>
+          <span className="font-medium text-text">{row.providerName}</span>
+          {row.lopFiles.length > 0 && (
+            <div className="mt-1 flex flex-col items-start gap-0.5">
+              {row.lopFiles.map((file, index) => (
+                <a
+                  key={file.fileId || file.path || `${file.url}-${index}`}
+                  href={file.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="max-w-64 truncate text-xs text-primary hover:underline"
+                  title={file.name}
+                >
+                  LOP: {file.name}
+                </a>
+              ))}
             </div>
-          ) : (
-            <Button size="sm" variant="secondary" onClick={() => beginEdit(row)}>Edit</Button>
           )}
+        </td>
+        <td className="px-3 py-2">
+          <Select
+            aria-label={`LOP status for ${row.providerName}`}
+            disabled={saving}
+            value={row.hasLop == null ? "" : row.hasLop ? "yes" : "no"}
+            onChange={(e) => {
+              const hasLop = e.target.value === "" ? null : e.target.value === "yes";
+              void saveProvider({ ...row, hasLop }, key);
+            }}
+          >
+            <option value="">Unknown</option>
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
+          </Select>
+        </td>
+        <DateCell disabled={saving} value={row.treatmentFinishedDate} onChange={(v) => void saveProvider({ ...row, treatmentFinishedDate: v }, key)} />
+        <DateCell disabled={saving} value={row.medicalRequestedDate} onChange={(v) => void saveProvider({ ...row, medicalRequestedDate: v }, key)} />
+        <DateCell disabled={saving} value={row.medicalReceivedDate} onChange={(v) => void saveProvider({ ...row, medicalReceivedDate: v }, key)} />
+        <DateCell disabled={saving} value={row.billingRequestedDate} onChange={(v) => void saveProvider({ ...row, billingRequestedDate: v }, key)} />
+        <DateCell disabled={saving} value={row.billingReceivedDate} onChange={(v) => void saveProvider({ ...row, billingReceivedDate: v }, key)} />
+        <td className="px-3 py-2">
+          {saving && <Spinner className="h-4 w-4" />}
         </td>
       </tr>
     );
@@ -262,7 +272,35 @@ export function MedicalTracker({
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {editingKey === "__new__" && draft && renderRow(draft, "__new__")}
+            {editingKey === "__new__" && (
+              <tr>
+                <td className="px-3 py-2">
+                  <Input
+                    autoFocus
+                    value={addingName}
+                    placeholder="Provider name"
+                    onChange={(e) => setAddingName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") void addProvider();
+                      if (e.key === "Escape") cancel();
+                    }}
+                  />
+                </td>
+                <td colSpan={6} />
+                <td className="px-3 py-2">
+                  <div className="flex gap-1">
+                    <Button
+                      size="sm"
+                      disabled={savingKey === "__new__" || !addingName.trim()}
+                      onClick={() => void addProvider()}
+                    >
+                      {savingKey === "__new__" ? <Spinner className="h-4 w-4" /> : "Add"}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={cancel}>Cancel</Button>
+                  </div>
+                </td>
+              </tr>
+            )}
             {sorted.map((row) => renderRow(row, row.id ?? row.providerName.trim().toLowerCase()))}
             {!sorted.length && editingKey !== "__new__" && (
               <tr>
@@ -279,21 +317,23 @@ export function MedicalTracker({
 }
 
 function DateCell({
-  editing,
+  disabled,
   value,
   onChange,
 }: {
-  editing: boolean;
+  disabled: boolean;
   value: string | null;
   onChange: (value: string | null) => void;
 }) {
   return (
     <td className="whitespace-nowrap px-3 py-2 tabular-nums">
-      {editing ? (
-        <Input type="date" value={value ?? ""} onChange={(e) => onChange(e.target.value || null)} />
-      ) : (
-        formatDate(value)
-      )}
+      <Input
+        type="date"
+        disabled={disabled}
+        value={value ?? ""}
+        aria-label={value ? `Date ${formatDate(value)}` : "Select date"}
+        onChange={(e) => onChange(e.target.value || null)}
+      />
     </td>
   );
 }
