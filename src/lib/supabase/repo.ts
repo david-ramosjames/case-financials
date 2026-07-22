@@ -164,12 +164,32 @@ export async function fetchStaffContacts(supabase: SupabaseClient): Promise<Cont
 
 /** Active cases with attorney/paralegal, LOP counts, and last Dropbox import timestamp. */
 export async function fetchCaseListRows(supabase: SupabaseClient): Promise<CaseListRow[]> {
+  const basic = await fetchCaseListRowsBasic(supabase);
+  return enrichCaseListRows(supabase, basic);
+}
+
+/** Fast first paint: cases only, then call enrichCaseListRows for LOP/sync/staff. */
+export async function fetchCaseListRowsBasic(supabase: SupabaseClient): Promise<CaseListRow[]> {
   const cases = await fetchCases(supabase);
-  if (!cases.length) return [];
+  return cases.map((caseRecord) => ({
+    case: caseRecord,
+    attorney: null,
+    paralegal: null,
+    lopCount: 0,
+    lastDropboxSyncAt: null,
+  }));
+}
 
+export async function enrichCaseListRows(
+  supabase: SupabaseClient,
+  basicRows: CaseListRow[]
+): Promise<CaseListRow[]> {
+  if (!basicRows.length) return [];
+  const cases = basicRows.map((r) => r.case);
   const contactIds = [...new Set(cases.flatMap((c) => c.assignedContactIds))];
-  const caseIds = cases.map((c) => c.id);
+  const caseIdSet = new Set(cases.map((c) => c.id));
 
+  // Avoid huge `.in(case_id, …)` URLs — fetch compact indexes and filter client-side.
   const [contacts, lopRows, importRows] = await Promise.all([
     contactIds.length
       ? fetchContactsByIds(supabase, contactIds)
@@ -178,16 +198,15 @@ export async function fetchCaseListRows(supabase: SupabaseClient): Promise<CaseL
       .from("case_medical_tracker")
       .select("case_id")
       .eq("has_lop", true)
-      .in("case_id", caseIds)
       .then(({ data, error }) => {
         if (error) throw error;
         return data ?? [];
       }),
     supabase
       .from("medical_import_jobs")
-      .select("case_id, status, completed_at, started_at, created_at")
-      .in("case_id", caseIds)
+      .select("case_id, completed_at, started_at, created_at")
       .order("created_at", { ascending: false })
+      .limit(4000)
       .then(({ data, error }) => {
         if (error) throw error;
         return data ?? [];
@@ -198,13 +217,14 @@ export async function fetchCaseListRows(supabase: SupabaseClient): Promise<CaseL
   const lopCountByCase = new Map<string, number>();
   for (const row of lopRows) {
     const id = String((row as { case_id: string }).case_id);
+    if (!caseIdSet.has(id)) continue;
     lopCountByCase.set(id, (lopCountByCase.get(id) ?? 0) + 1);
   }
 
   const lastSyncByCase = new Map<string, number>();
   for (const row of importRows as Record<string, unknown>[]) {
     const id = String(row.case_id);
-    if (lastSyncByCase.has(id)) continue;
+    if (!caseIdSet.has(id) || lastSyncByCase.has(id)) continue;
     const when =
       (row.completed_at ? parseTimestamp(row.completed_at) : 0) ||
       (row.started_at ? parseTimestamp(row.started_at) : 0) ||

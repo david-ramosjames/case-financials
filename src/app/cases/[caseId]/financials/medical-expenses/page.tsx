@@ -144,12 +144,17 @@ export default function MedicalExpensesPage() {
   const [err, setErr] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [caseReady, setCaseReady] = useState(false);
   const trackerRef = useRef<MedicalTrackerHandle>(null);
 
   useEffect(() => {
     if (!supabaseReady || loading || !user || !caseId) return;
+    setCaseReady(false);
     const supabase = getBrowserSupabase();
-    const unsubCase = subscribeCase(supabase, caseId, setCaseRecord);
+    const unsubCase = subscribeCase(supabase, caseId, (c) => {
+      setCaseRecord(c);
+      setCaseReady(true);
+    });
     const unsubExpenses = subscribeMedicalExpensesForCase(supabase, caseId, setExpenses);
     const unsubTracker = subscribeMedicalTrackerForCase(supabase, caseId, setTrackedProviders);
     return () => {
@@ -261,7 +266,9 @@ export default function MedicalExpensesPage() {
     }
   }, []);
 
-  if (!hydrated) return <PageSkeleton />;
+  if (!hydrated || loading || (user && !caseReady)) {
+    return <PageSkeleton label="Loading case financials…" />;
+  }
 
   if (!isSupabaseConfigured()) {
     return (

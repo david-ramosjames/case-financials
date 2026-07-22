@@ -7,7 +7,8 @@ import { useAuth } from "@/context/AuthContext";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getBrowserSupabase } from "@/lib/supabase/singleton";
 import {
-  fetchCaseListRows,
+  enrichCaseListRows,
+  fetchCaseListRowsBasic,
   fetchStaffContacts,
   type CaseListRow,
 } from "@/lib/supabase/repo";
@@ -33,6 +34,7 @@ export default function HomePage() {
   const { user, loading, supabaseReady } = useAuth();
   const [rows, setRows] = useState<CaseListRow[]>([]);
   const [staff, setStaff] = useState<Contact[]>([]);
+  const [listLoading, setListLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [attorneyId, setAttorneyId] = useState("all");
@@ -45,13 +47,35 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!supabaseReady || loading || !user) return;
+    let cancelled = false;
     const supabase = getBrowserSupabase();
-    void Promise.all([fetchCaseListRows(supabase), fetchStaffContacts(supabase)])
-      .then(([list, contacts]) => {
-        setRows(list);
+    setListLoading(true);
+    setErr(null);
+
+    void (async () => {
+      try {
+        const [basic, contacts] = await Promise.all([
+          fetchCaseListRowsBasic(supabase),
+          fetchStaffContacts(supabase),
+        ]);
+        if (cancelled) return;
+        setRows(basic);
         setStaff(contacts);
-      })
-      .catch((e) => setErr(e instanceof Error ? e.message : "Could not load cases"));
+        setListLoading(false);
+
+        const enriched = await enrichCaseListRows(supabase, basic);
+        if (!cancelled) setRows(enriched);
+      } catch (e) {
+        if (!cancelled) {
+          setErr(e instanceof Error ? e.message : "Could not load cases");
+          setListLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user, loading, supabaseReady]);
 
   const attorneys = useMemo(
@@ -86,8 +110,9 @@ export default function HomePage() {
     });
   }, [rows, search, attorneyId, paralegalId, lopFilter]);
 
-  if (!hydrated) return <PageSkeleton />;
-
+  if (!hydrated || loading || (user && listLoading)) {
+    return <PageSkeleton label="Loading cases…" />;
+  }
   if (!isSupabaseConfigured()) {
     return (
       <PageWrapper>

@@ -130,6 +130,7 @@ export default function ExpenseLogPage() {
   const { sortKey, sortDir, toggleSort } = useSortState<LogSortKey>("confidence", "asc");
   const [actingId, setActingId] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [logReady, setLogReady] = useState(false);
 
   useEffect(() => {
     if (!loading && supabaseReady && !user) router.replace("/login");
@@ -137,9 +138,23 @@ export default function ExpenseLogPage() {
 
   useEffect(() => {
     if (!supabaseReady || loading || !user) return;
+    setLogReady(false);
     const supabase = getBrowserSupabase();
-    const unsubMedical = subscribeAllMedicalExpensesLog(supabase, setMedical);
-    const unsubCase = subscribeAllCaseExpensesLog(supabase, setCaseExpenses);
+    let medicalDone = false;
+    let caseDone = false;
+    const markReady = () => {
+      if (medicalDone && caseDone) setLogReady(true);
+    };
+    const unsubMedical = subscribeAllMedicalExpensesLog(supabase, (rows) => {
+      setMedical(rows);
+      medicalDone = true;
+      markReady();
+    });
+    const unsubCase = subscribeAllCaseExpensesLog(supabase, (rows) => {
+      setCaseExpenses(rows);
+      caseDone = true;
+      markReady();
+    });
     return () => {
       unsubMedical();
       unsubCase();
@@ -187,7 +202,9 @@ export default function ExpenseLogPage() {
     }
   }, []);
 
-  if (!hydrated) return <PageSkeleton />;
+  if (!hydrated || loading || (user && !logReady)) {
+    return <PageSkeleton label="Loading expense log…" />;
+  }
 
   if (!isSupabaseConfigured()) {
     return (
