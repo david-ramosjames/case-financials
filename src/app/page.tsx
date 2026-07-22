@@ -37,6 +37,7 @@ export default function HomePage() {
   const [search, setSearch] = useState("");
   const [attorneyId, setAttorneyId] = useState("all");
   const [paralegalId, setParalegalId] = useState("all");
+  const [lopFilter, setLopFilter] = useState<"all" | "has_lop" | "no_lop">("all");
 
   useEffect(() => {
     if (!loading && supabaseReady && !user) router.replace("/login");
@@ -67,6 +68,8 @@ export default function HomePage() {
     return rows.filter((row) => {
       if (attorneyId !== "all" && row.attorney?.id !== attorneyId) return false;
       if (paralegalId !== "all" && row.paralegal?.id !== paralegalId) return false;
+      if (lopFilter === "has_lop" && row.lopCount <= 0) return false;
+      if (lopFilter === "no_lop" && row.lopCount > 0) return false;
       if (!q) return true;
       const hay = [
         row.case.name,
@@ -81,7 +84,7 @@ export default function HomePage() {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, search, attorneyId, paralegalId]);
+  }, [rows, search, attorneyId, paralegalId, lopFilter]);
 
   if (!hydrated) return <PageSkeleton />;
 
@@ -105,20 +108,29 @@ export default function HomePage() {
 
       {err && <p className="mt-4 text-sm text-danger">{err}</p>}
 
-      <div className="mt-8 space-y-3">
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search all cases (title, case #, client…)"
-          className="border-0 bg-surface shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus:ring-1"
-        />
+      <div className="mt-8 space-y-4">
+        <div>
+          <label
+            htmlFor="case-search"
+            className="mb-1.5 block text-[11px] font-medium uppercase tracking-wide text-text-dim"
+          >
+            Search
+          </label>
+          <Input
+            id="case-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by title, case #, client, attorney, or paralegal…"
+            className="border-border bg-white py-2.5 text-[15px] shadow-sm ring-1 ring-border/60 placeholder:text-text-muted focus:border-accent focus:ring-2 focus:ring-accent/20"
+          />
+        </div>
         <div className="flex flex-wrap gap-3">
           <div className="min-w-[12rem] flex-1 sm:flex-none">
             <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
               Attorney
             </label>
             <Select
-              className="border-0 bg-surface shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus:ring-1"
+              className="bg-white shadow-sm"
               value={attorneyId}
               onChange={(e) => setAttorneyId(e.target.value)}
             >
@@ -135,7 +147,7 @@ export default function HomePage() {
               Paralegal
             </label>
             <Select
-              className="border-0 bg-surface shadow-[0_1px_2px_rgba(15,23,42,0.04)] focus:ring-1"
+              className="bg-white shadow-sm"
               value={paralegalId}
               onChange={(e) => setParalegalId(e.target.value)}
             >
@@ -145,6 +157,20 @@ export default function HomePage() {
                   {c.name}
                 </option>
               ))}
+            </Select>
+          </div>
+          <div className="min-w-[12rem] flex-1 sm:flex-none">
+            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
+              LOP
+            </label>
+            <Select
+              className="bg-white shadow-sm"
+              value={lopFilter}
+              onChange={(e) => setLopFilter(e.target.value as typeof lopFilter)}
+            >
+              <option value="all">All cases</option>
+              <option value="has_lop">Has LOP</option>
+              <option value="no_lop">No LOP</option>
             </Select>
           </div>
         </div>
@@ -157,7 +183,7 @@ export default function HomePage() {
             description={
               rows.length === 0
                 ? "Cases are shared from your firm's case database."
-                : "Try a different search or clear the attorney/paralegal filters."
+                : "Try a different search or clear the filters."
             }
           />
         ) : (

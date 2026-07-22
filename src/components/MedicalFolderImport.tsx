@@ -263,7 +263,7 @@ export function MedicalFolderImport({
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-white/80">
               <div
-                className="h-full rounded-full bg-primary transition-all"
+                className="h-full rounded-full bg-accent transition-all"
                 style={{ width: `${progress}%` }}
               />
             </div>

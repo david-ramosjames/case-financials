@@ -276,7 +276,7 @@ export default function MedicalExpensesPage() {
   return (
     <PageWrapper>
       <nav className="mb-8 text-[13px] text-text-muted">
-        <Link href="/" className="hover:text-primary">
+        <Link href="/" className="hover:text-accent">
           ← Cases
         </Link>
         <span className="mx-2 text-text-dim">/</span>
@@ -523,7 +523,7 @@ export default function MedicalExpensesPage() {
                                       href={row.dropboxPermalink}
                                       target="_blank"
                                       rel="noopener noreferrer"
-                                      className="mt-1 block truncate text-[12px] text-primary hover:underline"
+                                      className="mt-1 block truncate text-[12px] text-accent hover:underline"
                                       title={row.dropboxFilePath ?? sourceLabel}
                                     >
                                       {sourceLabel}

@@ -16,7 +16,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const btnBase =
-  "inline-flex items-center justify-center font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 disabled:opacity-50 disabled:pointer-events-none";
+  "inline-flex items-center justify-center font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40 disabled:opacity-50 disabled:pointer-events-none";
 
 const btnVariants: Record<ButtonVariant, string> = {
   primary: "bg-primary text-white hover:bg-primary-hover",
@@ -49,7 +49,7 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
     return (
       <input
         ref={ref}
-        className={`w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-text placeholder:text-text-dim outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 ${className}`}
+        className={`w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-text placeholder:text-text-dim outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 ${className}`}
         {...props}
         type={type}
         onClick={type === "date" ? openDatePicker : onClick}
@@ -63,7 +63,7 @@ export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<H
     return (
       <select
         ref={ref}
-        className={`w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-text outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 ${className}`}
+        className={`w-full rounded-lg border border-border bg-white px-3 py-2 text-sm text-text outline-none transition focus:border-accent focus:ring-2 focus:ring-accent/20 ${className}`}
         {...props}
       />
     );
@@ -142,7 +142,7 @@ export function EmptyState({ title, description }: { title: string; description?
 
 export function Spinner({ className = "h-5 w-5" }: { className?: string }) {
   return (
-    <svg className={`animate-spin text-primary ${className}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <svg className={`animate-spin text-accent ${className}`} xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
     </svg>

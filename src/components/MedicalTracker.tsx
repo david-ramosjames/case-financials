@@ -240,7 +240,7 @@ export const MedicalTracker = forwardRef<
                   href={file.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block truncate text-[12px] leading-tight text-primary hover:underline"
+                  className="block truncate text-[12px] leading-tight text-accent hover:underline"
                   title={file.name}
                 >
                   {file.name}
@@ -330,7 +330,7 @@ export const MedicalTracker = forwardRef<
           <col className="w-[10%]" />
         </colgroup>
         <thead>
-          <tr className="bg-primary-light/70 text-[12px] font-medium uppercase tracking-[0.06em] text-navy-light">
+          <tr className="bg-primary-light text-[12px] font-medium uppercase tracking-[0.06em] text-primary">
             <th className="px-5 py-3.5 lg:px-6">
               <SortHeader label="Provider" field="providerName" sortKey={sortKey} sortDir={sortDir} onSort={toggleSort} />
             </th>

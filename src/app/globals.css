@@ -9,9 +9,14 @@
   --color-surface: #FFFFFF;
   --color-surface-alt: #F1F5F9;
   --color-border: #E2E8F0;
-  --color-primary: #3B82F6;
-  --color-primary-hover: #2563EB;
-  --color-primary-light: #EFF6FF;
+  /* Brand primary = navy */
+  --color-primary: #0B1F3A;
+  --color-primary-hover: #10294D;
+  --color-primary-light: #EEF2F7;
+  /* Brand accent = pink */
+  --color-accent: #D3368A;
+  --color-accent-hover: #B82E76;
+  --color-accent-light: #FDF2F8;
   --color-pink: #D3368A;
   --color-pink-hover: #B82E76;
   --color-pink-light: #FDF2F8;

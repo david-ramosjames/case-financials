@@ -306,7 +306,7 @@ export default function ExpenseLogPage() {
                       </td>
                       <td className="px-3 py-2">
                         {caseLink ? (
-                          <Link href={caseLink} className="font-medium text-primary hover:underline">
+                          <Link href={caseLink} className="font-medium text-accent hover:underline">
                             #{e.caseNumber}
                           </Link>
                         ) : (
@@ -326,7 +326,7 @@ export default function ExpenseLogPage() {
                       </td>
                       <td className="px-3 py-2">
                         {e.dropboxPermalink ? (
-                          <a href={e.dropboxPermalink} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
+                          <a href={e.dropboxPermalink} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
                             {sourceFileName(e.dropboxFilePath)}
                           </a>
                         ) : (

@@ -104,7 +104,7 @@ export function CaseFinancialHero({
                   href={slackChannelUrl(slackChannel.slackChannelId)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="font-medium text-primary hover:underline"
+                  className="font-medium text-accent hover:underline"
                 >
                   Slack {slackChannelLabel(slackChannel.slackChannelName, slackChannel.slackChannelId)}
                 </a>

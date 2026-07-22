@@ -300,7 +300,7 @@ export function CaseExpensesSection({
                                 href={row.dropboxPermalink}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="mt-0.5 block truncate text-[11px] leading-tight text-primary hover:underline"
+                                className="mt-0.5 block truncate text-[11px] leading-tight text-accent hover:underline"
                                 title={row.dropboxFilePath ?? sourceLabel}
                               >
                                 {sourceLabel}
