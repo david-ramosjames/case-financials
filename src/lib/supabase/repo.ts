@@ -121,10 +121,111 @@ export async function fetchCases(supabase: SupabaseClient): Promise<Case[]> {
     .from("cases")
     .select(CASE_SELECT)
     .eq("status", "active")
-    .order("updated_at", { ascending: false });
+    .order("case_number", { ascending: true });
   if (error) throw error;
-  return (data ?? []).map((r) => caseFromRow(r as Record<string, unknown>));
+  return (data ?? [])
+    .map((r) => caseFromRow(r as Record<string, unknown>))
+    .sort(compareCasesByNumber);
 }
+
+/** Numeric-aware case # sort: 99 before 100; missing numbers last. */
+export function compareCasesByNumber(a: Case, b: Case): number {
+  const [an, as] = caseNumberSortParts(a.caseNumber);
+  const [bn, bs] = caseNumberSortParts(b.caseNumber);
+  if (an !== bn) return an - bn;
+  return as.localeCompare(bs);
+}
+
+function caseNumberSortParts(caseNumber: string | null): [number, string] {
+  const raw = caseNumber?.trim() ?? "";
+  const digits = raw.replace(/\D/g, "");
+  if (!digits) return [Number.POSITIVE_INFINITY, raw.toLowerCase()];
+  const n = Number.parseInt(digits, 10);
+  return [Number.isFinite(n) ? n : Number.POSITIVE_INFINITY, raw.toLowerCase()];
+}
+
+export interface CaseListRow {
+  case: Case;
+  attorney: Contact | null;
+  paralegal: Contact | null;
+  lopCount: number;
+  lastDropboxSyncAt: number | null;
+}
+
+export async function fetchStaffContacts(supabase: SupabaseClient): Promise<Contact[]> {
+  const { data, error } = await supabase
+    .from("contacts")
+    .select("id, name, email, role")
+    .in("role", ["attorney", "paralegal"])
+    .order("name");
+  if (error) throw error;
+  return (data ?? []).map((r) => contactFromRow(r as Record<string, unknown>));
+}
+
+/** Active cases with attorney/paralegal, LOP counts, and last Dropbox import timestamp. */
+export async function fetchCaseListRows(supabase: SupabaseClient): Promise<CaseListRow[]> {
+  const cases = await fetchCases(supabase);
+  if (!cases.length) return [];
+
+  const contactIds = [...new Set(cases.flatMap((c) => c.assignedContactIds))];
+  const caseIds = cases.map((c) => c.id);
+
+  const [contacts, lopRows, importRows] = await Promise.all([
+    contactIds.length
+      ? fetchContactsByIds(supabase, contactIds)
+      : Promise.resolve([] as Contact[]),
+    supabase
+      .from("case_medical_tracker")
+      .select("case_id")
+      .eq("has_lop", true)
+      .in("case_id", caseIds)
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return data ?? [];
+      }),
+    supabase
+      .from("medical_import_jobs")
+      .select("case_id, status, completed_at, started_at, created_at")
+      .in("case_id", caseIds)
+      .order("created_at", { ascending: false })
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return data ?? [];
+      }),
+  ]);
+
+  const contactsById = new Map(contacts.map((c) => [c.id, c]));
+  const lopCountByCase = new Map<string, number>();
+  for (const row of lopRows) {
+    const id = String((row as { case_id: string }).case_id);
+    lopCountByCase.set(id, (lopCountByCase.get(id) ?? 0) + 1);
+  }
+
+  const lastSyncByCase = new Map<string, number>();
+  for (const row of importRows as Record<string, unknown>[]) {
+    const id = String(row.case_id);
+    if (lastSyncByCase.has(id)) continue;
+    const when =
+      (row.completed_at ? parseTimestamp(row.completed_at) : 0) ||
+      (row.started_at ? parseTimestamp(row.started_at) : 0) ||
+      parseTimestamp(row.created_at);
+    if (when > 0) lastSyncByCase.set(id, when);
+  }
+
+  return cases.map((caseRecord) => {
+    const assigned = caseRecord.assignedContactIds
+      .map((id) => contactsById.get(id))
+      .filter((c): c is Contact => Boolean(c));
+    return {
+      case: caseRecord,
+      attorney: assigned.find((c) => c.role === "attorney") ?? null,
+      paralegal: assigned.find((c) => c.role === "paralegal") ?? null,
+      lopCount: lopCountByCase.get(caseRecord.id) ?? 0,
+      lastDropboxSyncAt: lastSyncByCase.get(caseRecord.id) ?? null,
+    };
+  });
+}
+
 
 export async function fetchCase(supabase: SupabaseClient, caseId: string): Promise<Case | null> {
   const { data, error } = await supabase
