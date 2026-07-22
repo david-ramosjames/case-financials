@@ -7,12 +7,14 @@ import { useAuth } from "@/context/AuthContext";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 import { getBrowserSupabase } from "@/lib/supabase/singleton";
 import {
+  compareCasesByNumber,
   enrichCaseListRows,
   fetchCaseListRowsBasic,
   fetchStaffContacts,
   type CaseListRow,
 } from "@/lib/supabase/repo";
 import { caseDisplayName } from "@/lib/case-display";
+import { formatMedicalMoney } from "@/lib/medical-provider-summary";
 import type { Contact } from "@/lib/types";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { useHydrated } from "@/hooks/useHydrated";
@@ -28,6 +30,8 @@ function formatSyncWhen(ms: number): string {
   });
 }
 
+type SortMode = "case_number" | "total_desc";
+
 export default function HomePage() {
   const router = useRouter();
   const hydrated = useHydrated();
@@ -40,6 +44,7 @@ export default function HomePage() {
   const [attorneyId, setAttorneyId] = useState("all");
   const [paralegalId, setParalegalId] = useState("all");
   const [lopFilter, setLopFilter] = useState<"all" | "has_lop" | "no_lop">("all");
+  const [sortMode, setSortMode] = useState<SortMode>("case_number");
 
   useEffect(() => {
     if (!loading && supabaseReady && !user) router.replace("/login");
@@ -89,7 +94,7 @@ export default function HomePage() {
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows.filter((row) => {
+    const list = rows.filter((row) => {
       if (attorneyId !== "all" && row.attorney?.id !== attorneyId) return false;
       if (paralegalId !== "all" && row.paralegal?.id !== paralegalId) return false;
       if (lopFilter === "has_lop" && row.lopCount <= 0) return false;
@@ -108,7 +113,14 @@ export default function HomePage() {
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [rows, search, attorneyId, paralegalId, lopFilter]);
+
+    if (sortMode === "total_desc") {
+      return [...list].sort(
+        (a, b) => b.totalAmount - a.totalAmount || compareCasesByNumber(a.case, b.case)
+      );
+    }
+    return [...list].sort((a, b) => compareCasesByNumber(a.case, b.case));
+  }, [rows, search, attorneyId, paralegalId, lopFilter, sortMode]);
 
   if (!hydrated || loading || (user && listLoading)) {
     return <PageSkeleton label="Loading cases…" />;
@@ -198,6 +210,19 @@ export default function HomePage() {
               <option value="no_lop">No LOP</option>
             </Select>
           </div>
+          <div className="min-w-[12rem] flex-1 sm:flex-none">
+            <label className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-text-dim">
+              Sort
+            </label>
+            <Select
+              className="bg-white shadow-sm"
+              value={sortMode}
+              onChange={(e) => setSortMode(e.target.value as SortMode)}
+            >
+              <option value="case_number">Case number</option>
+              <option value="total_desc">Total (high → low)</option>
+            </Select>
+          </div>
         </div>
       </div>
 
@@ -235,11 +260,12 @@ export default function HomePage() {
                       </p>
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-1 text-right text-[13px]">
-                      <p className="tabular-nums text-text">
-                        <span className="font-medium">{row.lopCount}</span>{" "}
-                        <span className="text-text-muted">
-                          LOP{row.lopCount === 1 ? "" : "s"}
-                        </span>
+                      <p className="text-base font-semibold tabular-nums tracking-tight text-text">
+                        {formatMedicalMoney(row.totalAmount, false)}
+                      </p>
+                      <p className="tabular-nums text-text-muted">
+                        <span className="font-medium text-text">{row.lopCount}</span>{" "}
+                        LOP{row.lopCount === 1 ? "" : "s"}
                       </p>
                       <p className="text-text-dim">
                         {row.lastDropboxSyncAt

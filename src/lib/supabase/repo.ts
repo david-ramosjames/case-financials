@@ -150,6 +150,8 @@ export interface CaseListRow {
   paralegal: Contact | null;
   lopCount: number;
   lastDropboxSyncAt: number | null;
+  /** Medical charges total (same as case-page “Total”). */
+  totalAmount: number;
 }
 
 export async function fetchStaffContacts(supabase: SupabaseClient): Promise<Contact[]> {
@@ -177,6 +179,7 @@ export async function fetchCaseListRowsBasic(supabase: SupabaseClient): Promise<
     paralegal: null,
     lopCount: 0,
     lastDropboxSyncAt: null,
+    totalAmount: 0,
   }));
 }
 
@@ -188,9 +191,15 @@ export async function enrichCaseListRows(
   const cases = basicRows.map((r) => r.case);
   const contactIds = [...new Set(cases.flatMap((c) => c.assignedContactIds))];
   const caseIdSet = new Set(cases.map((c) => c.id));
+  const caseIdByNumber = new Map<string, string>();
+  for (const caseRecord of cases) {
+    for (const key of caseNumberLookupKeys(caseRecord)) {
+      if (!caseIdByNumber.has(key)) caseIdByNumber.set(key, caseRecord.id);
+    }
+  }
 
   // Avoid huge `.in(case_id, …)` URLs — fetch compact indexes and filter client-side.
-  const [contacts, lopRows, importRows] = await Promise.all([
+  const [contacts, lopRows, importRows, amountRows] = await Promise.all([
     contactIds.length
       ? fetchContactsByIds(supabase, contactIds)
       : Promise.resolve([] as Contact[]),
@@ -207,6 +216,13 @@ export async function enrichCaseListRows(
       .select("case_id, completed_at, started_at, created_at")
       .order("created_at", { ascending: false })
       .limit(4000)
+      .then(({ data, error }) => {
+        if (error) throw error;
+        return data ?? [];
+      }),
+    supabase
+      .from("case_medical_records")
+      .select("case_id, case_number, original_charges, reduced_from_amount")
       .then(({ data, error }) => {
         if (error) throw error;
         return data ?? [];
@@ -232,6 +248,19 @@ export async function enrichCaseListRows(
     if (when > 0) lastSyncByCase.set(id, when);
   }
 
+  const totalByCase = new Map<string, number>();
+  for (const row of amountRows as Record<string, unknown>[]) {
+    const byId = row.case_id != null ? String(row.case_id) : "";
+    const byNumber = String(row.case_number ?? "").trim();
+    const caseId =
+      (byId && caseIdSet.has(byId) ? byId : null) ??
+      (byNumber ? caseIdByNumber.get(byNumber) ?? null : null);
+    if (!caseId) continue;
+    const charge = Number(row.original_charges ?? row.reduced_from_amount ?? 0);
+    if (!Number.isFinite(charge) || charge <= 0) continue;
+    totalByCase.set(caseId, (totalByCase.get(caseId) ?? 0) + charge);
+  }
+
   return cases.map((caseRecord) => {
     const assigned = caseRecord.assignedContactIds
       .map((id) => contactsById.get(id))
@@ -242,6 +271,7 @@ export async function enrichCaseListRows(
       paralegal: assigned.find((c) => c.role === "paralegal") ?? null,
       lopCount: lopCountByCase.get(caseRecord.id) ?? 0,
       lastDropboxSyncAt: lastSyncByCase.get(caseRecord.id) ?? null,
+      totalAmount: totalByCase.get(caseRecord.id) ?? 0,
     };
   });
 }
