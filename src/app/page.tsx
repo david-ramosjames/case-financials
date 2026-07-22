@@ -176,7 +176,7 @@ export default function HomePage() {
         </div>
       </div>
 
-      <div className="mt-6 overflow-hidden rounded-2xl bg-surface shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <div className="mt-6 overflow-hidden rounded-2xl border border-border bg-surface shadow-sm">
         {filtered.length === 0 ? (
           <EmptyState
             title={rows.length === 0 ? "No active cases" : "No matching cases"}
@@ -187,7 +187,7 @@ export default function HomePage() {
             }
           />
         ) : (
-          <ul className="divide-y divide-border/60">
+          <ul className="divide-y divide-border">
             {filtered.map((row) => {
               const href = `/cases/${row.case.id}/financials/medical-expenses`;
               const meta: string[] = [];
