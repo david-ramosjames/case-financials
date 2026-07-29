@@ -204,6 +204,10 @@ function resolveListCaseId(
 
 const LIST_IN_CHUNK = 80;
 
+function asRecordRows(data: unknown): Record<string, unknown>[] {
+  return (data ?? []) as unknown as Record<string, unknown>[];
+}
+
 async function fetchRowsForCaseIds(
   supabase: SupabaseClient,
   table: string,
@@ -216,7 +220,7 @@ async function fetchRowsForCaseIds(
     const chunk = caseIds.slice(i, i + LIST_IN_CHUNK);
     const { data, error } = await supabase.from(table).select(select).in("case_id", chunk);
     if (error) throw error;
-    out.push(...((data ?? []) as Record<string, unknown>[]));
+    out.push(...asRecordRows(data));
   }
   return out;
 }
@@ -278,7 +282,7 @@ async function fetchCaseListStats(
           .eq("has_lop", true)
           .in("case_id", chunk);
         if (chunkError) throw chunkError;
-        out.push(...((data ?? []) as Record<string, unknown>[]));
+        out.push(...asRecordRows(data));
       }
       return out;
     })(),
@@ -292,7 +296,7 @@ async function fetchCaseListStats(
           .in("case_id", chunk)
           .order("created_at", { ascending: false });
         if (chunkError) throw chunkError;
-        out.push(...((data ?? []) as Record<string, unknown>[]));
+        out.push(...asRecordRows(data));
       }
       return out;
     })(),
