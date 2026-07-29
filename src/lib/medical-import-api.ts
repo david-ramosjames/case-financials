@@ -20,6 +20,8 @@ export interface MedicalImportJob {
   processedFiles: number;
   importedRecords: number;
   skippedFiles: number;
+  alreadyImportedFiles: number;
+  noDataFiles: number;
   failedFiles: number;
   errorMessage: string | null;
   createdAt: string;
@@ -50,6 +52,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
+function normalizeJob(job: MedicalImportJob): MedicalImportJob {
+  return {
+    ...job,
+    alreadyImportedFiles: Number(job.alreadyImportedFiles ?? 0),
+    noDataFiles: Number(job.noDataFiles ?? 0),
+    skippedFiles: Number(job.skippedFiles ?? 0),
+    importedRecords: Number(job.importedRecords ?? 0),
+    failedFiles: Number(job.failedFiles ?? 0),
+  };
+}
+
 export function isMedicalImportConfigured(): boolean {
   return Boolean(process.env.NEXT_PUBLIC_FILE_SORTER_URL?.trim());
 }
@@ -72,10 +85,10 @@ export async function launchMedicalImport(opts: {
     method: "POST",
     body: JSON.stringify(opts),
   });
-  return result.job;
+  return normalizeJob(result.job);
 }
 
 export async function fetchMedicalImportJob(jobId: string): Promise<MedicalImportJob> {
   const result = await request<{ job: MedicalImportJob }>(`/medical-import/jobs/${jobId}`);
-  return result.job;
+  return normalizeJob(result.job);
 }

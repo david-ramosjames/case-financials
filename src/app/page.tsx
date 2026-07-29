@@ -18,7 +18,7 @@ import { formatMedicalMoney } from "@/lib/medical-provider-summary";
 import type { Contact } from "@/lib/types";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { useHydrated } from "@/hooks/useHydrated";
-import { EmptyState, Input, PageHeader, PageWrapper, Select } from "@/components/ui";
+import { Badge, EmptyState, Input, PageHeader, PageWrapper, Select } from "@/components/ui";
 
 function formatSyncWhen(ms: number): string {
   return new Date(ms).toLocaleString(undefined, {
@@ -268,10 +268,13 @@ export default function HomePage() {
                         <span className="mx-1 text-text-dim">·</span>
                         Expenses {formatMedicalMoney(row.expensesTotal, false)}
                       </p>
-                      <p className="tabular-nums text-text-muted">
-                        <span className="font-medium text-text">{row.lopCount}</span>{" "}
-                        LOP{row.lopCount === 1 ? "" : "s"}
-                      </p>
+                      <Badge
+                        variant={row.lopCount > 0 ? "primary" : "default"}
+                        className="mt-0.5 tabular-nums"
+                      >
+                        <span className="font-semibold">{row.lopCount}</span>
+                        &nbsp;LOP{row.lopCount === 1 ? "" : "s"}
+                      </Badge>
                       <p className="text-text-dim">
                         {row.lastDropboxSyncAt
                           ? `Synced ${formatSyncWhen(row.lastDropboxSyncAt)}`

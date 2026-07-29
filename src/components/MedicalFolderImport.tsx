@@ -37,6 +37,48 @@ function lastImportLabel(summary: CaseMedicalImportSummary): string {
   return `Last import: ${stamp}`;
 }
 
+function formatSkipBreakdown(opts: {
+  alreadyImportedFiles: number;
+  noDataFiles: number;
+  skippedFiles: number;
+}): string {
+  const { alreadyImportedFiles, noDataFiles, skippedFiles } = opts;
+  if (alreadyImportedFiles > 0 || noDataFiles > 0) {
+    const parts: string[] = [];
+    if (alreadyImportedFiles > 0) parts.push(`${alreadyImportedFiles} already on file`);
+    if (noDataFiles > 0) parts.push(`${noDataFiles} no billable data`);
+    return parts.join(" · ");
+  }
+  if (skippedFiles > 0) return `${skippedFiles} skipped (already on file or no billable data)`;
+  return "";
+}
+
+function importOutcomeCopy(job: MedicalImportJob): { tone: "success" | "warning" | "danger"; text: string } {
+  const skips = formatSkipBreakdown(job);
+  if (job.status === "failed") {
+    return { tone: "danger", text: job.errorMessage ?? "Import failed" };
+  }
+  if (job.failedFiles > 0) {
+    return {
+      tone: "danger",
+      text: `Finished with ${job.failedFiles} failed file(s)${job.errorMessage ? `: ${job.errorMessage}` : ""}.${skips ? ` Also ${skips}.` : ""}`,
+    };
+  }
+  if (job.importedRecords === 0 && (job.alreadyImportedFiles > 0 || job.skippedFiles > 0)) {
+    return {
+      tone: "success",
+      text: `Up to date — no new records. ${skips || "All scanned files were already imported or had no billable data."}`,
+    };
+  }
+  if (job.importedRecords > 0) {
+    return {
+      tone: "success",
+      text: `Imported ${job.importedRecords} new record(s)${skips ? ` · ${skips}` : ""}.`,
+    };
+  }
+  return { tone: "success", text: "Import complete." };
+}
+
 export function MedicalFolderImport({
   caseId,
   caseNumber,
@@ -94,12 +136,14 @@ export function MedicalFolderImport({
   }, [job]);
 
   useEffect(() => {
-    if (job?.status !== "completed") return;
+    if (job?.status !== "completed" && job?.status !== "failed") return;
+    // Give time to read the outcome before refresh.
+    const delay = job.failedFiles > 0 || job.status === "failed" ? 8000 : 3500;
     const timer = window.setTimeout(() => {
       window.location.reload();
-    }, 1200);
+    }, delay);
     return () => window.clearTimeout(timer);
-  }, [job?.status]);
+  }, [job?.status, job?.failedFiles]);
 
   const loadFolders = async () => {
     setOpen(true);
@@ -150,9 +194,13 @@ export function MedicalFolderImport({
       {lastImport.status === "completed" && (
         <span className="text-text-dim">
           {" "}
-          · {lastImport.importedRecords} imported
+          · {lastImport.importedRecords} new
+          {formatSkipBreakdown(lastImport) ? ` · ${formatSkipBreakdown(lastImport)}` : ""}
           {lastImport.failedFiles > 0 ? ` · ${lastImport.failedFiles} failed` : ""}
         </span>
+      )}
+      {lastImport.status === "completed" && lastImport.failedFiles > 0 && lastImport.errorMessage && (
+        <span className="mt-1 block text-danger">{lastImport.errorMessage}</span>
       )}
     </p>
   ) : (
@@ -268,16 +316,35 @@ export function MedicalFolderImport({
               />
             </div>
             <div className="flex flex-wrap gap-2">
-              <Badge variant="success">{job.importedRecords} imported</Badge>
-              <Badge>{job.skippedFiles} skipped</Badge>
+              <Badge variant="success">{job.importedRecords} new</Badge>
+              {(job.alreadyImportedFiles > 0 ||
+                (job.skippedFiles > 0 && job.alreadyImportedFiles === 0 && job.noDataFiles === 0)) && (
+                <Badge>
+                  {job.alreadyImportedFiles > 0
+                    ? `${job.alreadyImportedFiles} already on file`
+                    : `${job.skippedFiles} skipped`}
+                </Badge>
+              )}
+              {job.noDataFiles > 0 && <Badge>{job.noDataFiles} no billable data</Badge>}
               {job.failedFiles > 0 && <Badge variant="danger">{job.failedFiles} failed</Badge>}
             </div>
-            {job.status === "completed" && (
-              <p className="text-sm text-success">Import complete. Refreshing…</p>
-            )}
-            {job.status === "failed" && (
-              <p className="text-sm text-danger">{job.errorMessage ?? "Import failed"}</p>
-            )}
+            {(job.status === "completed" || job.status === "failed") && (() => {
+              const outcome = importOutcomeCopy(job);
+              return (
+                <p
+                  className={`text-sm ${
+                    outcome.tone === "danger"
+                      ? "text-danger"
+                      : outcome.tone === "warning"
+                        ? "text-warning"
+                        : "text-success"
+                  }`}
+                >
+                  {outcome.text}
+                  {job.status === "completed" ? " Refreshing…" : ""}
+                </p>
+              );
+            })()}
             {!active && (
               <Button
                 size="sm"

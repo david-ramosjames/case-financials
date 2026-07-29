@@ -156,10 +156,15 @@ export const MedicalTracker = forwardRef<
     [caseId, caseNumber, trackedProviders, expenses]
   );
   const { sortKey, sortDir, toggleSort } = useSortState<SortKey>("providerName", "asc");
-  const sorted = useMemo(
-    () => [...rows].sort((a, b) => compareValues(a[sortKey], b[sortKey], sortDir)),
-    [rows, sortKey, sortDir]
-  );
+  const sorted = useMemo(() => {
+    const lopRank = (row: MedicalTrackerProvider) =>
+      row.hasLop === true ? 0 : row.hasLop === false ? 1 : 2;
+    return [...rows].sort((a, b) => {
+      const byLop = lopRank(a) - lopRank(b);
+      if (byLop !== 0) return byLop;
+      return compareValues(a[sortKey], b[sortKey], sortDir);
+    });
+  }, [rows, sortKey, sortDir]);
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [addingName, setAddingName] = useState("");
   const [savingKey, setSavingKey] = useState<string | null>(null);

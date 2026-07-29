@@ -202,14 +202,64 @@ function resolveListCaseId(
   );
 }
 
-export async function enrichCaseListRows(
+const LIST_IN_CHUNK = 80;
+
+async function fetchRowsForCaseIds(
   supabase: SupabaseClient,
-  basicRows: CaseListRow[]
-): Promise<CaseListRow[]> {
-  if (!basicRows.length) return [];
-  const cases = basicRows.map((r) => r.case);
-  const contactIds = [...new Set(cases.flatMap((c) => c.assignedContactIds))];
-  const caseIdSet = new Set(cases.map((c) => c.id));
+  table: string,
+  select: string,
+  caseIds: string[]
+): Promise<Record<string, unknown>[]> {
+  if (!caseIds.length) return [];
+  const out: Record<string, unknown>[] = [];
+  for (let i = 0; i < caseIds.length; i += LIST_IN_CHUNK) {
+    const chunk = caseIds.slice(i, i + LIST_IN_CHUNK);
+    const { data, error } = await supabase.from(table).select(select).in("case_id", chunk);
+    if (error) throw error;
+    out.push(...((data ?? []) as Record<string, unknown>[]));
+  }
+  return out;
+}
+
+type CaseListStatsRow = {
+  case_id: string;
+  medical_total: number | string | null;
+  expenses_total: number | string | null;
+  lop_count: number | string | null;
+  last_dropbox_sync_at: string | null;
+};
+
+/** Prefer DB RPC; fall back to chunked case_id queries if migration 010 is not applied yet. */
+async function fetchCaseListStats(
+  supabase: SupabaseClient,
+  cases: Case[]
+): Promise<{
+  medicalByCase: Map<string, number>;
+  expensesByCase: Map<string, number>;
+  lopCountByCase: Map<string, number>;
+  lastSyncByCase: Map<string, number>;
+}> {
+  const medicalByCase = new Map<string, number>();
+  const expensesByCase = new Map<string, number>();
+  const lopCountByCase = new Map<string, number>();
+  const lastSyncByCase = new Map<string, number>();
+
+  const { data, error } = await supabase.rpc("case_list_enrichment_stats");
+  if (!error && data) {
+    for (const row of data as CaseListStatsRow[]) {
+      const id = String(row.case_id);
+      medicalByCase.set(id, Number(row.medical_total ?? 0) || 0);
+      expensesByCase.set(id, Number(row.expenses_total ?? 0) || 0);
+      lopCountByCase.set(id, Number(row.lop_count ?? 0) || 0);
+      const syncMs = row.last_dropbox_sync_at ? parseTimestamp(row.last_dropbox_sync_at) : 0;
+      if (syncMs > 0) lastSyncByCase.set(id, syncMs);
+    }
+    return { medicalByCase, expensesByCase, lopCountByCase, lastSyncByCase };
+  }
+
+  // Fallback: never full-scan medical/expense tables (causes PostgREST timeouts).
+  const caseIds = cases.map((c) => c.id);
+  const caseIdSet = new Set(caseIds);
   const caseIdByNumber = new Map<string, string>();
   for (const caseRecord of cases) {
     for (const key of caseNumberLookupKeys(caseRecord)) {
@@ -217,53 +267,50 @@ export async function enrichCaseListRows(
     }
   }
 
-  // Avoid huge `.in(case_id, …)` URLs — fetch compact indexes and filter client-side.
-  const [contacts, lopRows, importRows, medicalRows, expenseRows] = await Promise.all([
-    contactIds.length
-      ? fetchContactsByIds(supabase, contactIds)
-      : Promise.resolve([] as Contact[]),
-    supabase
-      .from("case_medical_tracker")
-      .select("case_id")
-      .eq("has_lop", true)
-      .then(({ data, error }) => {
-        if (error) throw error;
-        return data ?? [];
-      }),
-    supabase
-      .from("medical_import_jobs")
-      .select("case_id, completed_at, started_at, created_at")
-      .order("created_at", { ascending: false })
-      .limit(4000)
-      .then(({ data, error }) => {
-        if (error) throw error;
-        return data ?? [];
-      }),
-    supabase
-      .from("case_medical_records")
-      .select("case_id, case_number, original_charges, reduced_from_amount")
-      .then(({ data, error }) => {
-        if (error) throw error;
-        return data ?? [];
-      }),
-    supabase
-      .from("case_expenses")
-      .select("case_id, case_number, amount")
-      .then(({ data, error }) => {
-        if (error) throw error;
-        return data ?? [];
-      }),
+  const [lopRows, importRows, medicalRows, expenseRows] = await Promise.all([
+    (async () => {
+      const out: Record<string, unknown>[] = [];
+      for (let i = 0; i < caseIds.length; i += LIST_IN_CHUNK) {
+        const chunk = caseIds.slice(i, i + LIST_IN_CHUNK);
+        const { data, error: chunkError } = await supabase
+          .from("case_medical_tracker")
+          .select("case_id")
+          .eq("has_lop", true)
+          .in("case_id", chunk);
+        if (chunkError) throw chunkError;
+        out.push(...((data ?? []) as Record<string, unknown>[]));
+      }
+      return out;
+    })(),
+    (async () => {
+      const out: Record<string, unknown>[] = [];
+      for (let i = 0; i < caseIds.length; i += LIST_IN_CHUNK) {
+        const chunk = caseIds.slice(i, i + LIST_IN_CHUNK);
+        const { data, error: chunkError } = await supabase
+          .from("medical_import_jobs")
+          .select("case_id, completed_at, started_at, created_at")
+          .in("case_id", chunk)
+          .order("created_at", { ascending: false });
+        if (chunkError) throw chunkError;
+        out.push(...((data ?? []) as Record<string, unknown>[]));
+      }
+      return out;
+    })(),
+    fetchRowsForCaseIds(
+      supabase,
+      "case_medical_records",
+      "case_id, case_number, original_charges, reduced_from_amount",
+      caseIds
+    ),
+    fetchRowsForCaseIds(supabase, "case_expenses", "case_id, case_number, amount", caseIds),
   ]);
 
-  const contactsById = new Map(contacts.map((c) => [c.id, c]));
-  const lopCountByCase = new Map<string, number>();
   for (const row of lopRows) {
-    const id = String((row as { case_id: string }).case_id);
+    const id = String(row.case_id);
     if (!caseIdSet.has(id)) continue;
     lopCountByCase.set(id, (lopCountByCase.get(id) ?? 0) + 1);
   }
 
-  const lastSyncByCase = new Map<string, number>();
   for (const row of importRows as Record<string, unknown>[]) {
     const id = String(row.case_id);
     if (!caseIdSet.has(id) || lastSyncByCase.has(id)) continue;
@@ -274,8 +321,7 @@ export async function enrichCaseListRows(
     if (when > 0) lastSyncByCase.set(id, when);
   }
 
-  const medicalByCase = new Map<string, number>();
-  for (const row of medicalRows as Record<string, unknown>[]) {
+  for (const row of medicalRows) {
     const caseId = resolveListCaseId(row, caseIdSet, caseIdByNumber);
     if (!caseId) continue;
     const charge = Number(row.original_charges ?? row.reduced_from_amount ?? 0);
@@ -283,14 +329,34 @@ export async function enrichCaseListRows(
     medicalByCase.set(caseId, (medicalByCase.get(caseId) ?? 0) + charge);
   }
 
-  const expensesByCase = new Map<string, number>();
-  for (const row of expenseRows as Record<string, unknown>[]) {
+  for (const row of expenseRows) {
     const caseId = resolveListCaseId(row, caseIdSet, caseIdByNumber);
     if (!caseId) continue;
     const amount = Number(row.amount ?? 0);
     if (!Number.isFinite(amount) || amount <= 0) continue;
     expensesByCase.set(caseId, (expensesByCase.get(caseId) ?? 0) + amount);
   }
+
+  return { medicalByCase, expensesByCase, lopCountByCase, lastSyncByCase };
+}
+
+export async function enrichCaseListRows(
+  supabase: SupabaseClient,
+  basicRows: CaseListRow[]
+): Promise<CaseListRow[]> {
+  if (!basicRows.length) return [];
+  const cases = basicRows.map((r) => r.case);
+  const contactIds = [...new Set(cases.flatMap((c) => c.assignedContactIds))];
+
+  const [contacts, stats] = await Promise.all([
+    contactIds.length
+      ? fetchContactsByIds(supabase, contactIds)
+      : Promise.resolve([] as Contact[]),
+    fetchCaseListStats(supabase, cases),
+  ]);
+
+  const contactsById = new Map(contacts.map((c) => [c.id, c]));
+  const { medicalByCase, expensesByCase, lopCountByCase, lastSyncByCase } = stats;
 
   return cases.map((caseRecord) => {
     const assigned = caseRecord.assignedContactIds
@@ -571,7 +637,10 @@ export interface CaseMedicalImportSummary {
   status: "queued" | "running" | "completed" | "failed";
   importedRecords: number;
   skippedFiles: number;
+  alreadyImportedFiles: number;
+  noDataFiles: number;
   failedFiles: number;
+  errorMessage: string | null;
   startedAt: number | null;
   completedAt: number | null;
   createdAt: number;
@@ -581,28 +650,49 @@ export async function fetchLatestMedicalImportForCase(
   supabase: SupabaseClient,
   caseId: string
 ): Promise<CaseMedicalImportSummary | null> {
-  const { data, error } = await supabase
+  const mapRow = (row: Record<string, unknown>): CaseMedicalImportSummary => ({
+    id: row.id as string,
+    status: row.status as CaseMedicalImportSummary["status"],
+    importedRecords: Number(row.imported_records ?? 0),
+    skippedFiles: Number(row.skipped_files ?? 0),
+    alreadyImportedFiles: Number(row.already_imported_files ?? 0),
+    noDataFiles: Number(row.no_data_files ?? 0),
+    failedFiles: Number(row.failed_files ?? 0),
+    errorMessage: (row.error_message as string) ?? null,
+    startedAt: row.started_at ? parseTimestamp(row.started_at) : null,
+    completedAt: row.completed_at ? parseTimestamp(row.completed_at) : null,
+    createdAt: parseTimestamp(row.created_at),
+  });
+
+  const base = supabase
     .from("medical_import_jobs")
     .select(
-      "id, status, imported_records, skipped_files, failed_files, started_at, completed_at, created_at"
+      "id, status, imported_records, skipped_files, already_imported_files, no_data_files, failed_files, error_message, started_at, completed_at, created_at"
     )
     .eq("case_id", caseId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (error) throw error;
-  if (!data) return null;
-  const row = data as Record<string, unknown>;
-  return {
-    id: row.id as string,
-    status: row.status as CaseMedicalImportSummary["status"],
-    importedRecords: Number(row.imported_records ?? 0),
-    skippedFiles: Number(row.skipped_files ?? 0),
-    failedFiles: Number(row.failed_files ?? 0),
-    startedAt: row.started_at ? parseTimestamp(row.started_at) : null,
-    completedAt: row.completed_at ? parseTimestamp(row.completed_at) : null,
-    createdAt: parseTimestamp(row.created_at),
-  };
+
+  const { data, error } = await base;
+  if (!error) {
+    if (!data) return null;
+    return mapRow(data as Record<string, unknown>);
+  }
+
+  // Migration 011 not applied yet — fall back without skip breakdown columns.
+  const { data: legacy, error: legacyError } = await supabase
+    .from("medical_import_jobs")
+    .select(
+      "id, status, imported_records, skipped_files, failed_files, error_message, started_at, completed_at, created_at"
+    )
+    .eq("case_id", caseId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (legacyError) throw legacyError;
+  if (!legacy) return null;
+  return mapRow(legacy as Record<string, unknown>);
 }
 
 export function subscribeAllMedicalExpensesLog(
