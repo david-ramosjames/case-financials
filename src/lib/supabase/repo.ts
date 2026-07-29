@@ -636,9 +636,18 @@ export async function deleteMedicalTrackerProvider(
   if (error) throw new Error(formatWriteError("Delete medical tracker", error));
 }
 
+import type { ImportExcludedFile, ImportFileSection } from "@/lib/medical-import-api";
+
+export type { ImportExcludedFile, ImportFileSection };
+
 export interface CaseMedicalImportSummary {
   id: string;
   status: "queued" | "running" | "completed" | "failed";
+  totalFiles: number;
+  scannedFiles: number;
+  includedFiles: number;
+  excludedFiles: number;
+  excludedFileList: ImportExcludedFile[];
   importedRecords: number;
   skippedFiles: number;
   alreadyImportedFiles: number;
@@ -650,28 +659,58 @@ export interface CaseMedicalImportSummary {
   createdAt: number;
 }
 
+function parseExcludedFileList(raw: unknown): ImportExcludedFile[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const row = item as Record<string, unknown>;
+      const section = row.section;
+      if (section !== "lop" && section !== "medical" && section !== "expenses") return null;
+      return {
+        name: String(row.name ?? ""),
+        path: String(row.path ?? ""),
+        url: row.url != null ? String(row.url) : null,
+        reason: String(row.reason ?? "Not included"),
+        section,
+      };
+    })
+    .filter((item): item is ImportExcludedFile => Boolean(item?.name && item.path));
+}
+
 export async function fetchLatestMedicalImportForCase(
   supabase: SupabaseClient,
   caseId: string
 ): Promise<CaseMedicalImportSummary | null> {
-  const mapRow = (row: Record<string, unknown>): CaseMedicalImportSummary => ({
-    id: row.id as string,
-    status: row.status as CaseMedicalImportSummary["status"],
-    importedRecords: Number(row.imported_records ?? 0),
-    skippedFiles: Number(row.skipped_files ?? 0),
-    alreadyImportedFiles: Number(row.already_imported_files ?? 0),
-    noDataFiles: Number(row.no_data_files ?? 0),
-    failedFiles: Number(row.failed_files ?? 0),
-    errorMessage: (row.error_message as string) ?? null,
-    startedAt: row.started_at ? parseTimestamp(row.started_at) : null,
-    completedAt: row.completed_at ? parseTimestamp(row.completed_at) : null,
-    createdAt: parseTimestamp(row.created_at),
-  });
+  const mapRow = (row: Record<string, unknown>): CaseMedicalImportSummary => {
+    const totalFiles = Number(row.total_files ?? 0);
+    const scannedFiles = Number(row.scanned_files ?? 0) || totalFiles;
+    const excludedFiles =
+      Number(row.excluded_files ?? 0) || Math.max(0, scannedFiles - totalFiles);
+    return {
+      id: row.id as string,
+      status: row.status as CaseMedicalImportSummary["status"],
+      totalFiles,
+      scannedFiles,
+      includedFiles: totalFiles,
+      excludedFiles,
+      excludedFileList: parseExcludedFileList(row.excluded_file_list),
+      importedRecords: Number(row.imported_records ?? 0),
+      skippedFiles: Number(row.skipped_files ?? 0),
+      alreadyImportedFiles: Number(row.already_imported_files ?? 0),
+      noDataFiles: Number(row.no_data_files ?? 0),
+      failedFiles: Number(row.failed_files ?? 0),
+      errorMessage: (row.error_message as string) ?? null,
+      startedAt: row.started_at ? parseTimestamp(row.started_at) : null,
+      completedAt: row.completed_at ? parseTimestamp(row.completed_at) : null,
+      createdAt: parseTimestamp(row.created_at),
+    };
+  };
 
   const base = supabase
     .from("medical_import_jobs")
     .select(
-      "id, status, imported_records, skipped_files, already_imported_files, no_data_files, failed_files, error_message, started_at, completed_at, created_at"
+      "id, status, total_files, scanned_files, excluded_files, excluded_file_list, imported_records, skipped_files, already_imported_files, no_data_files, failed_files, error_message, started_at, completed_at, created_at"
     )
     .eq("case_id", caseId)
     .order("created_at", { ascending: false })
@@ -684,17 +723,30 @@ export async function fetchLatestMedicalImportForCase(
     return mapRow(data as Record<string, unknown>);
   }
 
-  // Migration 011 not applied yet — fall back without skip breakdown columns.
+  // Migration 012 / 011 not applied yet — fall back without newer columns.
   const { data: legacy, error: legacyError } = await supabase
     .from("medical_import_jobs")
     .select(
-      "id, status, imported_records, skipped_files, failed_files, error_message, started_at, completed_at, created_at"
+      "id, status, total_files, imported_records, skipped_files, already_imported_files, no_data_files, failed_files, error_message, started_at, completed_at, created_at"
     )
     .eq("case_id", caseId)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (legacyError) throw legacyError;
+  if (legacyError) {
+    const { data: oldest, error: oldestError } = await supabase
+      .from("medical_import_jobs")
+      .select(
+        "id, status, imported_records, skipped_files, failed_files, error_message, started_at, completed_at, created_at"
+      )
+      .eq("case_id", caseId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (oldestError) throw oldestError;
+    if (!oldest) return null;
+    return mapRow(oldest as Record<string, unknown>);
+  }
   if (!legacy) return null;
   return mapRow(legacy as Record<string, unknown>);
 }

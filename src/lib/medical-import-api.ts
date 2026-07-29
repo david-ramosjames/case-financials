@@ -3,11 +3,24 @@ import { getBrowserSupabase } from "@/lib/supabase/singleton";
 export interface MedicalImportFolderPreview {
   name: string;
   path: string;
+  scannedFiles: number;
+  includedFiles: number;
+  excludedFiles: number;
   lopFiles: number;
   medicalFiles: number;
   expenseFiles: number;
   providerFolders: string[];
   vendorFolders: string[];
+}
+
+export type ImportFileSection = "lop" | "medical" | "expenses";
+
+export interface ImportExcludedFile {
+  name: string;
+  path: string;
+  url: string | null;
+  reason: string;
+  section: ImportFileSection;
 }
 
 export interface MedicalImportJob {
@@ -17,6 +30,9 @@ export interface MedicalImportJob {
   dropboxCasePath: string;
   status: "queued" | "running" | "completed" | "failed";
   totalFiles: number;
+  scannedFiles: number;
+  excludedFiles: number;
+  excludedFileList: ImportExcludedFile[];
   processedFiles: number;
   importedRecords: number;
   skippedFiles: number;
@@ -26,6 +42,18 @@ export interface MedicalImportJob {
   errorMessage: string | null;
   createdAt: string;
   completedAt: string | null;
+}
+
+export function formatImportScanSummary(opts: {
+  scannedFiles?: number;
+  includedFiles?: number;
+  excludedFiles?: number;
+  totalFiles?: number;
+}): string {
+  const included = opts.includedFiles ?? opts.totalFiles ?? 0;
+  const scanned = opts.scannedFiles || included + (opts.excludedFiles ?? 0);
+  const excluded = opts.excludedFiles ?? Math.max(0, scanned - included);
+  return `${scanned} scanned · ${included} included · ${excluded} not included`;
 }
 
 function apiBase(): string {
@@ -53,13 +81,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 function normalizeJob(job: MedicalImportJob): MedicalImportJob {
+  const totalFiles = Number(job.totalFiles ?? 0);
+  const scannedFiles = Number(job.scannedFiles ?? 0) || totalFiles;
+  const excludedFiles =
+    Number(job.excludedFiles ?? 0) || Math.max(0, scannedFiles - totalFiles);
   return {
     ...job,
+    totalFiles,
+    scannedFiles,
+    excludedFiles,
+    excludedFileList: Array.isArray(job.excludedFileList) ? job.excludedFileList : [],
     alreadyImportedFiles: Number(job.alreadyImportedFiles ?? 0),
     noDataFiles: Number(job.noDataFiles ?? 0),
     skippedFiles: Number(job.skippedFiles ?? 0),
     importedRecords: Number(job.importedRecords ?? 0),
     failedFiles: Number(job.failedFiles ?? 0),
+    processedFiles: Number(job.processedFiles ?? 0),
   };
 }
 

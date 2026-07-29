@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   fetchMedicalImportJob,
+  formatImportScanSummary,
   isMedicalImportConfigured,
   launchMedicalImport,
   previewMedicalImportFolders,
@@ -194,6 +195,8 @@ export function MedicalFolderImport({
       {lastImport.status === "completed" && (
         <span className="text-text-dim">
           {" "}
+          · {formatImportScanSummary(lastImport)}
+          {" "}
           · {lastImport.importedRecords} new
           {formatSkipBreakdown(lastImport) ? ` · ${formatSkipBreakdown(lastImport)}` : ""}
           {lastImport.failedFiles > 0 ? ` · ${lastImport.failedFiles} failed` : ""}
@@ -264,7 +267,10 @@ export function MedicalFolderImport({
                 </div>
                 {selected && (
                   <div className="rounded-lg bg-white/70 px-4 py-3 text-sm">
-                    <div className="flex flex-wrap gap-2">
+                    <p className="font-medium tabular-nums text-text">
+                      {formatImportScanSummary(selected)}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
                       <Badge variant="primary">{selected.medicalFiles} Medical</Badge>
                       <Badge variant="warning">{selected.lopFiles} LOP</Badge>
                       <Badge variant="success">{selected.expenseFiles ?? 0} Expenses</Badge>
@@ -306,9 +312,12 @@ export function MedicalFolderImport({
             <div className="flex items-center justify-between gap-3 text-sm">
               <span className="font-medium capitalize text-text">{job.status}</span>
               <span className="tabular-nums text-text-muted">
-                {job.processedFiles} / {job.totalFiles} files
+                {job.processedFiles} / {job.totalFiles} included
               </span>
             </div>
+            <p className="text-[13px] tabular-nums text-text-muted">
+              {formatImportScanSummary(job)}
+            </p>
             <div className="h-2 overflow-hidden rounded-full bg-white/80">
               <div
                 className="h-full rounded-full bg-accent transition-all"

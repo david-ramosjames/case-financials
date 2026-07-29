@@ -39,6 +39,7 @@ import { MedicalFolderImport } from "@/components/MedicalFolderImport";
 import { CaseFinancialHero, StatusDot } from "@/components/CaseFinancialHero";
 import { FinancialSection } from "@/components/FinancialSection";
 import { CaseExpensesSection } from "@/components/CaseExpensesSection";
+import { ImportExcludedFilesSection } from "@/components/ImportExcludedFilesSection";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   Button,
@@ -730,6 +731,8 @@ export default function MedicalExpensesPage() {
             </FinancialSection>
 
           <CaseExpensesSection caseId={caseId} caseNumber={caseRecord?.caseNumber ?? null} />
+
+          <ImportExcludedFilesSection caseId={caseId} />
       </div>
     </PageWrapper>
   );
