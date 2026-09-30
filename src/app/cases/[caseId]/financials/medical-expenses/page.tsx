@@ -40,6 +40,7 @@ import { CaseFinancialHero, StatusDot } from "@/components/CaseFinancialHero";
 import { FinancialSection } from "@/components/FinancialSection";
 import { CaseExpensesSection } from "@/components/CaseExpensesSection";
 import { ImportExcludedFilesSection } from "@/components/ImportExcludedFilesSection";
+import { MedicalTrackerCertification } from "@/components/MedicalTrackerCertification";
 import { useHydrated } from "@/hooks/useHydrated";
 import {
   Button,
@@ -305,6 +306,9 @@ export default function MedicalExpensesPage() {
               lopProviders={lopProviders}
               importConfigured={isMedicalImportConfigured() && Boolean(caseRecord.caseNumber)}
               onImport={() => setImportOpen(true)}
+              onCertify={() =>
+                document.getElementById("certified-pdf")?.scrollIntoView({ behavior: "smooth", block: "start" })
+              }
               onAddProvider={
                 caseRecord.caseNumber
                   ? () => {
@@ -731,6 +735,14 @@ export default function MedicalExpensesPage() {
             </FinancialSection>
 
           <CaseExpensesSection caseId={caseId} caseNumber={caseRecord?.caseNumber ?? null} />
+
+          {caseRecord && (
+            <MedicalTrackerCertification
+              caseRecord={caseRecord}
+              trackedProviders={trackedProviders}
+              expenses={expenses}
+            />
+          )}
 
           <ImportExcludedFilesSection caseId={caseId} />
       </div>

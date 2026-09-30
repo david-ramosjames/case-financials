@@ -15,6 +15,14 @@ import type {
   MedicalTrackerProvider,
 } from "@/lib/types";
 import { caseNumberLookupKeys } from "@/lib/case-display";
+import {
+  normalizeSnapshot,
+  type AttestationStatementRecord,
+  type CertificationScope,
+  type FinancialVersions,
+  type MedicalTrackerAttestation,
+  type TrackerSnapshot,
+} from "@/lib/medical-attestation";
 
 type Unsubscribe = () => void;
 
@@ -1071,4 +1079,89 @@ export async function createCaseExpense(
     text_extraction_method: "manual",
   });
   if (error) throw new Error(formatWriteError("Create case expense", error));
+}
+
+/* ── Medical Tracker certification ───────────────────────────────── */
+
+/** Current Medical Tracker and Case Expenses versions for a case (no row yet = version 1). */
+export async function fetchFinancialVersions(
+  supabase: SupabaseClient,
+  caseId: string
+): Promise<FinancialVersions> {
+  const { data, error } = await supabase
+    .from("case_medical_tracker_versions")
+    .select("version, expenses_version")
+    .eq("case_id", caseId)
+    .maybeSingle();
+  if (error) throw error;
+  const row = data as { version: number | string; expenses_version: number | string } | null;
+  return {
+    medical: row ? Number(row.version) : 1,
+    expenses: row ? Number(row.expenses_version) : 1,
+  };
+}
+
+function attestationFromRow(r: Record<string, unknown>): MedicalTrackerAttestation {
+  const scope = ((r.scope as string) || "medical") as CertificationScope;
+  return {
+    id: r.id as string,
+    caseId: r.case_id as string,
+    caseNumber: (r.case_number as string) ?? null,
+    scope,
+    reviewerUserId: r.reviewer_user_id as string,
+    reviewerName: r.reviewer_name as string,
+    reviewerEmail: (r.reviewer_email as string) ?? null,
+    attestedAt: r.attested_at as string,
+    trackerVersion: Number(r.tracker_version),
+    expensesVersion: Number(r.expenses_version ?? 1),
+    pdfVersion: Number(r.pdf_version),
+    statementSetVersion: r.statement_set_version as string,
+    statements: (r.statements ?? []) as AttestationStatementRecord[],
+    snapshot: normalizeSnapshot(r.snapshot, scope),
+    snapshotHash: r.snapshot_hash as string,
+  };
+}
+
+/** Newest first. */
+export async function fetchMedicalTrackerAttestations(
+  supabase: SupabaseClient,
+  caseId: string
+): Promise<MedicalTrackerAttestation[]> {
+  const { data, error } = await supabase
+    .from("medical_tracker_attestations")
+    .select("*")
+    .eq("case_id", caseId)
+    .order("attested_at", { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => attestationFromRow(r as Record<string, unknown>));
+}
+
+export async function createMedicalTrackerAttestation(
+  supabase: SupabaseClient,
+  input: {
+    caseId: string;
+    scope: CertificationScope;
+    versions: FinancialVersions;
+    statementSetVersion: string;
+    statements: AttestationStatementRecord[];
+    snapshot: TrackerSnapshot;
+    snapshotHash: string;
+    reviewerName: string;
+  }
+): Promise<MedicalTrackerAttestation> {
+  const { data, error } = await supabase.rpc("create_medical_tracker_attestation", {
+    p_case_id: input.caseId,
+    p_scope: input.scope,
+    p_tracker_version: input.versions.medical,
+    p_expenses_version: input.versions.expenses,
+    p_statement_set_version: input.statementSetVersion,
+    p_statements: input.statements,
+    p_snapshot: input.snapshot,
+    p_snapshot_hash: input.snapshotHash,
+    p_reviewer_name: input.reviewerName,
+  });
+  if (error) throw new Error(error.message);
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) throw new Error("Certification was not saved");
+  return attestationFromRow(row as Record<string, unknown>);
 }

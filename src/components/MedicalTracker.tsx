@@ -93,7 +93,7 @@ function mergeLopFiles(
   return [...files.values()];
 }
 
-function mergeProviders(
+export function mergeProviders(
   caseId: string,
   caseNumber: string,
   tracked: MedicalTrackerProvider[],

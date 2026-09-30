@@ -29,6 +29,7 @@ export function CaseFinancialHero({
   lopProviders,
   onImport,
   onAddProvider,
+  onCertify,
   importConfigured,
 }: {
   caseRecord: Case;
@@ -40,6 +41,7 @@ export function CaseFinancialHero({
   lopProviders: number;
   onImport?: () => void;
   onAddProvider?: () => void;
+  onCertify?: () => void;
   importConfigured?: boolean;
 }) {
   const [slackChannel, setSlackChannel] = useState<CaseSlackChannel | null>(null);
@@ -122,6 +124,11 @@ export function CaseFinancialHero({
           {importConfigured && onImport && (
             <Button variant="secondary" onClick={onImport}>
               Import Dropbox
+            </Button>
+          )}
+          {onCertify && (
+            <Button variant="secondary" onClick={onCertify}>
+              Certified PDF
             </Button>
           )}
           {onAddProvider && (
