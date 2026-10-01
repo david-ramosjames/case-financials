@@ -31,6 +31,7 @@ import {
   type FinancialVersions,
   type MedicalTrackerAttestation,
 } from "@/lib/medical-attestation";
+import { buildMedicalLedger } from "@/lib/medical-ledger";
 import type { Case, CaseExpense, MedicalExpense, MedicalTrackerProvider } from "@/lib/types";
 import { FinancialSection } from "@/components/FinancialSection";
 import { Badge, Button, Spinner } from "@/components/ui";
@@ -61,10 +62,15 @@ export function MedicalTrackerCertification({
   caseRecord,
   trackedProviders,
   expenses,
+  providersNeedingReview = 0,
+  onCurrentMedicalCertification,
 }: {
   caseRecord: Case;
   trackedProviders: MedicalTrackerProvider[];
   expenses: MedicalExpense[];
+  /** Providers whose totals haven't been confirmed; blocks medical certification. */
+  providersNeedingReview?: number;
+  onCurrentMedicalCertification?: (attestation: MedicalTrackerAttestation | null) => void;
 }) {
   const { user } = useAuth();
   const caseId = caseRecord.id;
@@ -128,7 +134,9 @@ export function MedicalTrackerCertification({
   const isCurrent = Boolean(latest && versions && isAttestationCurrent(latest, versions));
   const allChecked = statementSet.statements.every((s) => checked[s.id]);
 
-  const flaggedInvoices = useMemo(() => expenses.filter(isFlaggedInvoice).length, [expenses]);
+  const ledger = useMemo(() => buildMedicalLedger(expenses), [expenses]);
+  const flaggedInvoices = useMemo(() => ledger.counted.filter(isFlaggedInvoice).length, [ledger]);
+  const pendingSuggestions = scopeIncludesMedical(scope) ? ledger.suggestions.length : 0;
   const flaggedCaseExpenses = useMemo(() => caseExpenses.filter(isFlaggedCaseExpense).length, [caseExpenses]);
   const flaggedMessages: string[] = [];
   if (scopeIncludesMedical(scope) && flaggedInvoices > 0) {
@@ -147,6 +155,17 @@ export function MedicalTrackerCertification({
     }
     return ids;
   }, [attestations, versions]);
+
+  useEffect(() => {
+    if (!onCurrentMedicalCertification) return;
+    const current =
+      (["medical", "all"] as CertificationScope[])
+        .map((s) => attestations.find((a) => a.scope === s))
+        .find((a) => a && currentIds.has(a.id)) ?? null;
+    onCurrentMedicalCertification(current);
+  }, [attestations, currentIds, onCurrentMedicalCertification]);
+
+  const blockedByProviderReview = scopeIncludesMedical(scope) && providersNeedingReview > 0;
 
   const selectScope = (next: CertificationScope) => {
     if (next === scope) return;
@@ -308,6 +327,13 @@ export function MedicalTrackerCertification({
                   {flaggedMessages.join(" and ")} currently flagged (needs review or low extraction confidence).
                 </p>
               )}
+              {pendingSuggestions > 0 && (
+                <p className="mt-2 text-sm text-warning">
+                  {pendingSuggestions} medical document{pendingSuggestions === 1 ? " looks" : "s look"} like a
+                  duplicate or older balance and {pendingSuggestions === 1 ? "is" : "are"} left out of the PDF.
+                  Confirm or keep {pendingSuggestions === 1 ? "it" : "them"} under Invoices before certifying.
+                </p>
+              )}
 
               <ul className="mt-4 space-y-3">
                 {statementSet.statements.map((statement) => (
@@ -330,13 +356,18 @@ export function MedicalTrackerCertification({
               </ul>
 
               <div className="mt-5 flex flex-wrap items-center gap-3">
-                <Button disabled={!allChecked || submitting || !user} onClick={() => void certify()}>
+                <Button
+                  disabled={!allChecked || submitting || !user || blockedByProviderReview}
+                  onClick={() => void certify()}
+                >
                   {submitting ? <Spinner className="h-4 w-4" /> : "Generate Final PDF"}
                 </Button>
                 <span className="text-[13px] text-text-muted">
-                  {allChecked
-                    ? `Signing as ${user ? reviewerDisplayName(user) : "—"}. Your certification is logged.`
-                    : "Check every statement to enable the final PDF."}
+                  {blockedByProviderReview
+                    ? `Confirm totals for ${providersNeedingReview} more provider${providersNeedingReview === 1 ? "" : "s"} under Invoices first.`
+                    : allChecked
+                      ? `Signing as ${user ? reviewerDisplayName(user) : "—"}. Your certification is logged.`
+                      : "Check every statement to enable the final PDF."}
                 </span>
               </div>
             </div>

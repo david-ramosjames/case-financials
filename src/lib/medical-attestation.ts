@@ -7,6 +7,7 @@ import {
   type MedicalSummaryTotals,
   type ProviderRollup,
 } from "@/lib/medical-provider-summary";
+import { buildMedicalLedger } from "@/lib/medical-ledger";
 import { mergeProviders } from "@/components/MedicalTracker";
 import type {
   Case,
@@ -303,8 +304,9 @@ function compareText(a: string | null, b: string | null): number {
 function buildMedicalSection(
   caseRecord: Case,
   trackedProviders: MedicalTrackerProvider[],
-  expenses: MedicalExpense[]
+  allExpenses: MedicalExpense[]
 ): MedicalSnapshotSection {
+  const expenses = buildMedicalLedger(allExpenses).counted;
   const lopRank = (p: MedicalTrackerProvider) => (p.hasLop === true ? 0 : p.hasLop === false ? 1 : 2);
   const providers = mergeProviders(
     caseRecord.id,

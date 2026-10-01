@@ -69,7 +69,7 @@ export function deriveLineAmounts(e: MedicalExpense): {
   return { charge, paid, adjusted, outstanding };
 }
 
-function providerGroupKey(name: string): string {
+export function providerGroupKey(name: string): string {
   const tokens = canonicalizeProviderTokens(name);
   return tokens.length ? tokens.join(" ") : name.trim().toLowerCase();
 }

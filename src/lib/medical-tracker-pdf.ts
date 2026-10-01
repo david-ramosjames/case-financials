@@ -3,10 +3,7 @@ import autoTable from "jspdf-autotable";
 import { formatIncidentDate } from "@/lib/case-display";
 import { CASE_EXPENSE_PAYMENT_LABELS } from "@/lib/case-expense-display";
 import {
-  DOCUMENT_TYPE_LABELS,
-  PAYMENT_STATUS_LABELS,
-} from "@/lib/medical-expense-display";
-import {
+  ATTESTATION_STATEMENT_SETS,
   SCOPE_DOCUMENT_TITLES,
   formatCentralTime,
   type CertificationScope,
@@ -21,6 +18,7 @@ const MUTED: [number, number, number] = [100, 116, 139];
 const BORDER: [number, number, number] = [226, 232, 240];
 const ZEBRA: [number, number, number] = [248, 250, 252];
 const FOOT_FILL: [number, number, number] = [238, 242, 247];
+const INK: [number, number, number] = [15, 23, 42];
 
 const MARGIN = 40;
 
@@ -30,15 +28,6 @@ const FILE_PREFIX: Record<CertificationScope, string> = {
   all: "Case-Financials",
 };
 
-const CERTIFICATION_SENTENCES: Record<CertificationScope, string> = {
-  medical:
-    "The reviewer confirmed that the medical providers, charges, balances, duplicate entries, and system-flagged items were reviewed prior to generation of this document.",
-  expenses:
-    "The reviewer confirmed that the case expenses, amounts, payment status, duplicate entries, and system-flagged items were reviewed prior to generation of this document.",
-  all:
-    "The reviewer confirmed that the medical providers, charges, balances, case expenses, duplicate entries, and system-flagged items were reviewed prior to generation of this document.",
-};
-
 function money(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value);
@@ -46,12 +35,6 @@ function money(value: number | null | undefined): string {
 
 function date(value: string | null): string {
   return formatIncidentDate(value) ?? "—";
-}
-
-function lopLabel(value: boolean | null): string {
-  if (value === true) return "Yes";
-  if (value === false) return "No";
-  return "—";
 }
 
 function rightAlignColumns(columns: number[]) {
@@ -79,7 +62,7 @@ function sectionTitle(doc: jsPDF, title: string, y: number): number {
 
 const tableDefaults = {
   margin: { left: MARGIN, right: MARGIN, bottom: 44 },
-  styles: { font: "helvetica", fontSize: 8.5, cellPadding: 4, textColor: [15, 23, 42] as [number, number, number], lineColor: BORDER, lineWidth: 0.5 },
+  styles: { font: "helvetica", fontSize: 8.5, cellPadding: 4, textColor: INK, lineColor: BORDER, lineWidth: 0.5 },
   headStyles: { fillColor: NAVY, textColor: [255, 255, 255] as [number, number, number], fontStyle: "bold" as const },
   alternateRowStyles: { fillColor: ZEBRA },
 };
@@ -94,6 +77,14 @@ function scopeVersions(att: MedicalTrackerAttestation): Array<[string, number]> 
   return out;
 }
 
+/** Short titles of the statements the reviewer checked, in the wording they attested to. */
+function attestedStatementTitles(att: MedicalTrackerAttestation): string[] {
+  const set = Object.values(ATTESTATION_STATEMENT_SETS).find((s) => s.version === att.statementSetVersion);
+  return att.statements
+    .filter((s) => s.checked)
+    .map((s) => set?.statements.find((x) => x.id === s.id)?.title ?? s.text.split(/(?<=\.)\s/)[0]);
+}
+
 export function medicalTrackerPdfFileName(attestation: MedicalTrackerAttestation): string {
   const caseNumber = attestation.snapshot.case.caseNumber ?? attestation.caseId.slice(0, 8);
   const safe = caseNumber.replace(/[^\w.-]+/g, "_");
@@ -104,124 +95,101 @@ export function downloadMedicalTrackerPdf(attestation: MedicalTrackerAttestation
   buildMedicalTrackerPdf(attestation).save(medicalTrackerPdfFileName(attestation));
 }
 
-function statsFor(
-  medical: MedicalSnapshotSection | null,
-  expenses: ExpensesSnapshotSection | null
-): Array<[string, string]> {
-  if (medical && expenses) {
-    return [
-      ["Medical Charges", money(medical.summary.totals.charge)],
-      ["Case Expenses", money(expenses.totals.amount)],
-      ["Combined Total", money(medical.summary.totals.charge + expenses.totals.amount)],
-      ["Outstanding", money(medical.summary.totals.outstanding + expenses.totals.outstanding)],
-      ["Providers", String(medical.providers.length)],
-      ["Vendors", String(expenses.totals.vendors)],
-    ];
-  }
-  if (expenses) {
-    return [
-      ["Total Expenses", money(expenses.totals.amount)],
-      ["Paid", money(expenses.totals.paid)],
-      ["Outstanding", money(expenses.totals.outstanding)],
-      ["Expenses", String(expenses.items.length)],
-      ["Vendors", String(expenses.totals.vendors)],
-    ];
-  }
-  const totals = medical!.summary.totals;
-  return [
-    ["Total Charges", money(totals.charge)],
-    ["Paid", money(totals.paid)],
-    ["Adjusted", money(totals.adjusted)],
-    ["Outstanding", money(totals.outstanding)],
-    ["Providers", String(medical!.providers.length)],
-    ["LOP Providers", String(medical!.lopProviderCount)],
-  ];
-}
-
-function drawMedicalSections(doc: jsPDF, medical: MedicalSnapshotSection, startY: number) {
+/** Attorney-facing medical summary: one row per provider plus totals. */
+function drawMedicalSummary(doc: jsPDF, medical: MedicalSnapshotSection, startY: number, title: string | null) {
   const totals = medical.summary.totals;
-
-  let y = sectionTitle(doc, "Medical Providers", startY);
+  const y = title ? sectionTitle(doc, title, startY) : startY;
   autoTable(doc, {
     ...tableDefaults,
     startY: y,
-    head: [["Provider", "LOP", "Treatment Finished", "Records Requested", "Records Received", "Billing Requested", "Billing Received"]],
-    body: medical.providers.length
-      ? medical.providers.map((p) => [
+    styles: { ...tableDefaults.styles, fontSize: 10.5, cellPadding: { top: 7, bottom: 7, left: 8, right: 8 } },
+    head: [["Provider", "Total Charges", "Adjustments", "Paid", "Outstanding Balance"]],
+    body: medical.summary.providers.length
+      ? medical.summary.providers.map((p) => [
           p.providerName,
-          lopLabel(p.hasLop),
-          date(p.treatmentFinishedDate),
-          date(p.medicalRequestedDate),
-          date(p.medicalReceivedDate),
-          date(p.billingRequestedDate),
-          date(p.billingReceivedDate),
+          money(p.charge),
+          money(p.adjusted),
+          money(p.paid),
+          money(p.outstanding),
         ])
-      : [["No providers recorded", "", "", "", "", "", ""]],
-    columnStyles: { 0: { cellWidth: 190 } },
-  });
-
-  y = sectionTitle(doc, "Financial Summary by Provider", lastTableY(doc) + 26);
-  autoTable(doc, {
-    ...tableDefaults,
-    startY: y,
-    head: [["Provider", "Charges", "Paid", "Adjusted", "Outstanding"]],
-    body: medical.summary.providers.map((p) => [
-      p.providerName,
-      money(p.charge),
-      money(p.paid),
-      money(p.adjusted),
-      money(p.outstanding),
-    ]),
-    foot: [["Total", money(totals.charge), money(totals.paid), money(totals.adjusted), money(totals.outstanding)]],
+      : [["No medical providers recorded", "", "", "", ""]],
+    foot: [["Total", money(totals.charge), money(totals.adjusted), money(totals.paid), money(totals.outstanding)]],
     footStyles,
+    columnStyles: { 1: { cellWidth: 115 }, 2: { cellWidth: 115 }, 3: { cellWidth: 115 }, 4: { cellWidth: 135 } },
     didParseCell: rightAlignColumns([1, 2, 3, 4]),
   });
+}
 
-  y = sectionTitle(doc, "Invoices", lastTableY(doc) + 26);
+function categoryOf(e: ExpensesSnapshotSection["items"][number]): string {
+  return e.expenseType?.trim() || "Uncategorized";
+}
+
+/** Where the money went: one row per expense category, largest first. */
+function drawExpenseCategories(doc: jsPDF, expenses: ExpensesSnapshotSection, startY: number) {
+  const byCategory = new Map<string, { count: number; amount: number; paid: number; outstanding: number }>();
+  for (const e of expenses.items) {
+    const row = byCategory.get(categoryOf(e)) ?? { count: 0, amount: 0, paid: 0, outstanding: 0 };
+    row.count += 1;
+    row.amount += e.amount;
+    row.paid += e.paid;
+    row.outstanding += e.outstanding;
+    byCategory.set(categoryOf(e), row);
+  }
+  const rows = [...byCategory.entries()].sort((a, b) => b[1].amount - a[1].amount);
+  const t = expenses.totals;
+  const y = sectionTitle(doc, "Expenses by Category", startY);
   autoTable(doc, {
     ...tableDefaults,
     startY: y,
-    head: [["Provider", "Document", "Account #", "Date of Service", "Charges", "Balance", "Final Pay", "Status"]],
-    body: medical.invoices.length
-      ? medical.invoices.map((inv) => [
-          inv.providerName,
-          DOCUMENT_TYPE_LABELS[inv.documentType] ?? inv.documentType,
-          inv.accountNumber ?? "—",
-          date(inv.dateOfService),
-          money(inv.charge),
-          money(inv.outstanding),
-          money(inv.finalPayAmount),
-          PAYMENT_STATUS_LABELS[inv.paymentStatus] ?? inv.paymentStatus,
-        ])
-      : [["No invoices recorded", "", "", "", "", "", "", ""]],
-    columnStyles: { 0: { cellWidth: 170 } },
-    didParseCell: rightAlignColumns([4, 5, 6]),
+    head: [["Category", "Items", "Amount", "Paid", "Outstanding"]],
+    body: rows.map(([category, r]) => [category, String(r.count), money(r.amount), money(r.paid), money(r.outstanding)]),
+    foot: [["Total", String(expenses.items.length), money(t.amount), money(t.paid), money(t.outstanding)]],
+    footStyles,
+    columnStyles: { 1: { cellWidth: 60 }, 2: { cellWidth: 115 }, 3: { cellWidth: 115 }, 4: { cellWidth: 115 } },
+    didParseCell: rightAlignColumns([1, 2, 3, 4]),
   });
 }
 
 function drawExpensesSection(doc: jsPDF, expenses: ExpensesSnapshotSection, startY: number) {
-  const y = sectionTitle(doc, "Case Expenses", startY);
+  if (!expenses.items.length) {
+    const y = sectionTitle(doc, "Case Expenses", startY);
+    autoTable(doc, { ...tableDefaults, startY: y, body: [["No case expenses recorded"]] });
+    return;
+  }
+
+  drawExpenseCategories(doc, expenses, startY);
+
+  const items = [...expenses.items].sort(
+    (a, b) =>
+      (a.invoiceDate ?? a.serviceDate ?? "9999").localeCompare(b.invoiceDate ?? b.serviceDate ?? "9999") ||
+      a.vendorName.localeCompare(b.vendorName)
+  );
+  const y = sectionTitle(doc, "Expense Line Items", lastTableY(doc) + 26);
   autoTable(doc, {
     ...tableDefaults,
     startY: y,
-    head: [["Vendor", "Type", "Description", "Invoice #", "Date", "Amount", "Paid", "Status"]],
-    body: expenses.items.length
-      ? expenses.items.map((e) => [
-          e.vendorName,
-          e.expenseType ?? "—",
-          e.description ?? "—",
-          e.invoiceNumber ?? "—",
-          date(e.invoiceDate ?? e.serviceDate),
-          money(e.amount),
-          money(e.paid),
-          CASE_EXPENSE_PAYMENT_LABELS[e.paymentStatus] ?? e.paymentStatus,
-        ])
-      : [["No case expenses recorded", "", "", "", "", "", "", ""]],
-    foot: expenses.items.length
-      ? [["Total", "", "", "", "", money(expenses.totals.amount), money(expenses.totals.paid), ""]]
-      : undefined,
+    head: [["Date", "Vendor", "Category", "Description", "Invoice #", "Amount", "Paid", "Status"]],
+    body: items.map((e) => [
+      date(e.invoiceDate ?? e.serviceDate),
+      e.vendorName,
+      categoryOf(e),
+      e.description ?? "—",
+      e.invoiceNumber ?? "—",
+      money(e.amount),
+      money(e.paid),
+      CASE_EXPENSE_PAYMENT_LABELS[e.paymentStatus] ?? e.paymentStatus,
+    ]),
+    foot: [["Total", "", "", "", "", money(expenses.totals.amount), money(expenses.totals.paid), ""]],
     footStyles,
-    columnStyles: { 0: { cellWidth: 140 }, 2: { cellWidth: 170 } },
+    columnStyles: {
+      0: { cellWidth: 62 },
+      1: { cellWidth: 118 },
+      2: { cellWidth: 90 },
+      4: { cellWidth: 70 },
+      5: { cellWidth: 72 },
+      6: { cellWidth: 68 },
+      7: { cellWidth: 70 },
+    },
     didParseCell: rightAlignColumns([5, 6]),
   });
 }
@@ -247,6 +215,16 @@ function drawCombinedSummary(
     footStyles,
     didParseCell: rightAlignColumns([1, 2, 3]),
   });
+}
+
+function drawCheckbox(doc: jsPDF, x: number, y: number) {
+  doc.setDrawColor(...NAVY);
+  doc.setLineWidth(0.8);
+  doc.rect(x, y - 7.5, 9, 9, "S");
+  doc.setDrawColor(...PINK);
+  doc.setLineWidth(1.4);
+  doc.line(x + 1.8, y - 3.2, x + 3.8, y - 1);
+  doc.line(x + 3.8, y - 1, x + 7.6, y - 6);
 }
 
 export function buildMedicalTrackerPdf(attestation: MedicalTrackerAttestation): jsPDF {
@@ -289,31 +267,13 @@ export function buildMedicalTrackerPdf(attestation: MedicalTrackerAttestation): 
     { align: "right", lineHeightFactor: 1.5 }
   );
 
-  // Totals
-  const stats = statsFor(medical, expenses);
-  const statTop = MARGIN + 64 + Math.max(0, versions.length - 1) * 8;
-  const statWidth = contentWidth / stats.length;
-  doc.setDrawColor(...BORDER);
-  doc.roundedRect(MARGIN, statTop, contentWidth, 48, 6, 6, "S");
-  stats.forEach(([label, value], i) => {
-    const x = MARGIN + statWidth * i + 12;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(8);
-    doc.setTextColor(...MUTED);
-    doc.text(label.toUpperCase(), x, statTop + 17);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.setTextColor(...NAVY);
-    doc.text(value, x, statTop + 36);
-  });
-
-  let nextY = statTop + 76;
+  let nextY = MARGIN + 76 + Math.max(0, versions.length - 1) * 15;
   if (medical && expenses) {
     drawCombinedSummary(doc, medical, expenses, nextY);
     nextY = lastTableY(doc) + 26;
   }
   if (medical) {
-    drawMedicalSections(doc, medical, nextY);
+    drawMedicalSummary(doc, medical, nextY, expenses ? "Medical Expenses by Provider" : null);
     nextY = lastTableY(doc) + 26;
   }
   if (expenses) {
@@ -321,12 +281,21 @@ export function buildMedicalTrackerPdf(attestation: MedicalTrackerAttestation): 
   }
 
   // Review certification
-  const rows: Array<[string, string]> = [
+  const details: Array<[string, string]> = [
     ["Reviewed by:", attestation.reviewerName],
     ["Review completed:", formatCentralTime(attestation.attestedAt)],
     ...versions.map(([label, v]): [string, string] => [`${label} Version:`, String(v)]),
   ];
-  const certHeight = 73 + rows.length * 15;
+  const statementX = MARGIN + 340;
+  const statementWidth = MARGIN + contentWidth - statementX - 34;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  const statementLines = attestedStatementTitles(attestation).map(
+    (title) => doc.splitTextToSize(title, statementWidth) as string[]
+  );
+  const statementHeight = statementLines.reduce((h, lines) => h + lines.length * 12 + 4, 0);
+  const certHeight = 50 + Math.max(details.length * 15, statementHeight + 4);
+
   let certTop = lastTableY(doc) + 28;
   if (certTop + certHeight > pageHeight - 44) {
     doc.addPage();
@@ -344,23 +313,25 @@ export function buildMedicalTrackerPdf(attestation: MedicalTrackerAttestation): 
   doc.text("Reviewed & Verified", MARGIN + 18, certTop + 24);
 
   doc.setFontSize(10);
-  rows.forEach(([label, value], i) => {
-    const rowY = certTop + 44 + i * 15;
+  details.forEach(([label, value], i) => {
+    const rowY = certTop + 46 + i * 15;
     doc.setFont("helvetica", "bold");
     doc.setTextColor(...NAVY);
     doc.text(label, MARGIN + 18, rowY);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(...INK);
     doc.text(value, MARGIN + 150, rowY);
   });
 
-  doc.setFontSize(9);
-  doc.setTextColor(...MUTED);
-  doc.text(
-    doc.splitTextToSize(CERTIFICATION_SENTENCES[attestation.scope], contentWidth - 36),
-    MARGIN + 18,
-    certTop + 53 + rows.length * 15
-  );
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9.5);
+  doc.setTextColor(...INK);
+  let lineY = certTop + 46;
+  for (const lines of statementLines) {
+    drawCheckbox(doc, statementX, lineY);
+    doc.text(lines, statementX + 16, lineY);
+    lineY += lines.length * 12 + 4;
+  }
 
   // Footer on every page
   const pageCount = doc.getNumberOfPages();

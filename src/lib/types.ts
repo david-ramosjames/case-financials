@@ -74,8 +74,26 @@ export interface MedicalExpense {
   extractionConfidence: number | null;
   documentExtractionConfidence: number | null;
   textExtractionMethod: string | null;
+  /** Set when a reviewer excluded this record from totals. */
+  excludedReason: MedicalExclusionReason | null;
+  excludedAt: string | null;
+  excludedBy: string | null;
+  excludedNote: string | null;
+  supersededById: string | null;
+  /** Reviewer kept this record counted despite a duplicate/superseded suggestion. */
+  suggestionDismissed: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export type MedicalExclusionReason = "duplicate" | "superseded" | "not_medical";
+
+export interface MedicalProviderReview {
+  providerKey: string;
+  providerName: string;
+  fingerprint: string;
+  reviewedBy: string | null;
+  reviewedAt: string;
 }
 
 export interface MedicalTrackerProvider {

@@ -12,6 +12,8 @@ import type {
   MedicalExpenseDocumentType,
   MedicalExpensePaymentStatus,
   MedicalExpenseReviewStatus,
+  MedicalExclusionReason,
+  MedicalProviderReview,
   MedicalTrackerProvider,
 } from "@/lib/types";
 import { caseNumberLookupKeys } from "@/lib/case-display";
@@ -101,6 +103,12 @@ function medicalExpenseFromRow(r: Record<string, unknown>): MedicalExpense {
     documentExtractionConfidence:
       r.document_extraction_confidence != null ? Number(r.document_extraction_confidence) : null,
     textExtractionMethod: (r.text_extraction_method as string) ?? null,
+    excludedReason: (r.excluded_reason as MedicalExclusionReason) ?? null,
+    excludedAt: (r.excluded_at as string) ?? null,
+    excludedBy: (r.excluded_by as string) ?? null,
+    excludedNote: (r.excluded_note as string) ?? null,
+    supersededById: (r.superseded_by_id as string) ?? null,
+    suggestionDismissed: r.suggestion_dismissed === true,
     createdAt: parseTimestamp(r.created_at),
     updatedAt: parseTimestamp(r.updated_at),
   };
@@ -808,6 +816,149 @@ export async function markMedicalExpenseReviewed(
     .update({ review_status: "reviewed", updated_at: Date.now() })
     .eq("id", expenseId);
   if (error) throw new Error(formatWriteError("Mark reviewed", error));
+}
+
+export async function excludeMedicalExpenses(
+  supabase: SupabaseClient,
+  items: { id: string; reason: MedicalExclusionReason; supersededById: string | null }[],
+  excludedBy: string | null
+): Promise<void> {
+  const excludedAt = new Date().toISOString();
+  const results = await Promise.all(
+    items.map((item) =>
+      supabase
+        .from("case_medical_records")
+        .update({
+          excluded_reason: item.reason,
+          excluded_at: excludedAt,
+          excluded_by: excludedBy,
+          superseded_by_id: item.supersededById,
+        })
+        .eq("id", item.id)
+    )
+  );
+  const failed = results.find((r) => r.error);
+  if (failed?.error) throw new Error(formatWriteError("Exclude record", failed.error));
+}
+
+/** Count the record again; it won't be re-suggested as duplicate/superseded. */
+export async function restoreMedicalExpense(
+  supabase: SupabaseClient,
+  expenseId: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("case_medical_records")
+    .update({
+      excluded_reason: null,
+      excluded_at: null,
+      excluded_by: null,
+      excluded_note: null,
+      superseded_by_id: null,
+      suggestion_dismissed: true,
+    })
+    .eq("id", expenseId);
+  if (error) throw new Error(formatWriteError("Restore record", error));
+}
+
+export async function setMedicalSuggestionDismissed(
+  supabase: SupabaseClient,
+  expenseId: string,
+  dismissed: boolean
+): Promise<void> {
+  const { error } = await supabase
+    .from("case_medical_records")
+    .update({ suggestion_dismissed: dismissed })
+    .eq("id", expenseId);
+  if (error) throw new Error(formatWriteError("Update record", error));
+}
+
+export async function fetchMedicalProviderReviews(
+  supabase: SupabaseClient,
+  caseId: string
+): Promise<MedicalProviderReview[]> {
+  const { data, error } = await supabase
+    .from("case_medical_provider_reviews")
+    .select("provider_key, provider_name, fingerprint, reviewed_by, reviewed_at")
+    .eq("case_id", caseId);
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    providerKey: r.provider_key as string,
+    providerName: r.provider_name as string,
+    fingerprint: r.fingerprint as string,
+    reviewedBy: (r.reviewed_by as string) ?? null,
+    reviewedAt: r.reviewed_at as string,
+  }));
+}
+
+export function subscribeMedicalProviderReviews(
+  supabase: SupabaseClient,
+  caseId: string,
+  cb: (reviews: MedicalProviderReview[]) => void
+): Unsubscribe {
+  const load = async () => {
+    try {
+      cb(await fetchMedicalProviderReviews(supabase, caseId));
+    } catch (e) {
+      console.warn("[subscribeMedicalProviderReviews]", e);
+      cb([]);
+    }
+  };
+  void load();
+  const ch = supabase
+    .channel(`medical-provider-reviews:${caseId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "case_medical_provider_reviews", filter: `case_id=eq.${caseId}` },
+      () => void load()
+    )
+    .subscribe();
+  return () => void supabase.removeChannel(ch);
+}
+
+/** Confirm a provider's canonical totals; its flagged records are marked reviewed. */
+export async function confirmMedicalProviderReview(
+  supabase: SupabaseClient,
+  input: {
+    caseId: string;
+    providerKey: string;
+    providerName: string;
+    fingerprint: string;
+    reviewedBy: string | null;
+    recordIdsToMarkReviewed: string[];
+  }
+): Promise<void> {
+  if (input.recordIdsToMarkReviewed.length) {
+    const { error } = await supabase
+      .from("case_medical_records")
+      .update({ review_status: "reviewed" })
+      .in("id", input.recordIdsToMarkReviewed);
+    if (error) throw new Error(formatWriteError("Mark records reviewed", error));
+  }
+  const { error } = await supabase.from("case_medical_provider_reviews").upsert(
+    {
+      case_id: input.caseId,
+      provider_key: input.providerKey,
+      provider_name: input.providerName,
+      fingerprint: input.fingerprint,
+      reviewed_by: input.reviewedBy,
+      reviewed_at: new Date().toISOString(),
+    },
+    { onConflict: "case_id,provider_key" }
+  );
+  if (error) throw new Error(formatWriteError("Confirm provider totals", error));
+}
+
+export async function reopenMedicalProviderReview(
+  supabase: SupabaseClient,
+  caseId: string,
+  providerKey: string
+): Promise<void> {
+  const { error } = await supabase
+    .from("case_medical_provider_reviews")
+    .delete()
+    .eq("case_id", caseId)
+    .eq("provider_key", providerKey);
+  if (error) throw new Error(formatWriteError("Reopen provider", error));
 }
 
 export async function markMedicalExpensePaid(
