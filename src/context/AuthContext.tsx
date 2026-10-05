@@ -48,7 +48,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         return;
       }
-      setUser(u);
+      // Supabase re-emits the session on tab focus / token refresh; keep the same object so pages don't reload.
+      setUser((prev) => (prev && u && prev.id === u.id && prev.email === u.email ? prev : u));
       setLoading(false);
     };
 

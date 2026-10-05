@@ -11,7 +11,15 @@ import {
   subscribeMedicalExpensesForCase,
   subscribeMedicalProviderReviews,
   subscribeMedicalTrackerForCase,
+  subscribeLearnedProviderAliases,
+  subscribeProviderAliases,
 } from "@/lib/supabase/repo";
+import {
+  applyProviderAliases,
+  learnedAliasRenames,
+  type LearnedProviderAlias,
+  type ProviderAlias,
+} from "@/lib/provider-aliases";
 import type { MedicalTrackerAttestation } from "@/lib/medical-attestation";
 import { buildReviewProgress, certifiedProviderKeys } from "@/lib/medical-review";
 import { MedicalReviewWorkflow } from "@/components/MedicalReviewWorkflow";
@@ -46,6 +54,8 @@ export default function MedicalExpensesPage() {
   const [expenses, setExpenses] = useState<MedicalExpense[]>([]);
   const [trackedProviders, setTrackedProviders] = useState<MedicalTrackerProvider[]>([]);
   const [providerReviews, setProviderReviews] = useState<MedicalProviderReview[]>([]);
+  const [aliases, setAliases] = useState<ProviderAlias[]>([]);
+  const [learnedAliases, setLearnedAliases] = useState<LearnedProviderAlias[]>([]);
   const [certification, setCertification] = useState<MedicalTrackerAttestation | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -63,11 +73,15 @@ export default function MedicalExpensesPage() {
     const unsubExpenses = subscribeMedicalExpensesForCase(supabase, caseId, setExpenses);
     const unsubTracker = subscribeMedicalTrackerForCase(supabase, caseId, setTrackedProviders);
     const unsubReviews = subscribeMedicalProviderReviews(supabase, caseId, setProviderReviews);
+    const unsubAliases = subscribeProviderAliases(supabase, caseId, setAliases);
+    const unsubLearned = subscribeLearnedProviderAliases(supabase, setLearnedAliases);
     return () => {
       unsubCase();
       unsubExpenses();
       unsubTracker();
       unsubReviews();
+      unsubAliases();
+      unsubLearned();
     };
   }, [user, loading, supabaseReady, caseId]);
 
@@ -75,7 +89,19 @@ export default function MedicalExpensesPage() {
     if (!loading && supabaseReady && !user) router.replace("/login");
   }, [user, loading, supabaseReady, router]);
 
-  const ledger = useMemo(() => buildMedicalLedger(expenses), [expenses]);
+  const aliasedExpenses = useMemo(
+    () => applyProviderAliases(expenses, aliases, learnedAliases),
+    [expenses, aliases, learnedAliases]
+  );
+  const aliasedTracked = useMemo(
+    () => applyProviderAliases(trackedProviders, aliases, learnedAliases),
+    [trackedProviders, aliases, learnedAliases]
+  );
+  const learnedRenames = useMemo(
+    () => learnedAliasRenames(expenses, aliases, learnedAliases),
+    [expenses, aliases, learnedAliases]
+  );
+  const ledger = useMemo(() => buildMedicalLedger(aliasedExpenses), [aliasedExpenses]);
   const counted = ledger.counted;
   const progress = useMemo(
     () => buildReviewProgress(ledger, providerReviews, certifiedProviderKeys(certification, ledger)),
@@ -171,7 +197,7 @@ export default function MedicalExpensesPage() {
                   ref={trackerRef}
                   caseId={caseId}
                   caseNumber={caseRecord.caseNumber}
-                  trackedProviders={trackedProviders}
+                  trackedProviders={aliasedTracked}
                   expenses={counted}
                   hideChrome
                 />
@@ -213,7 +239,14 @@ export default function MedicalExpensesPage() {
             {showAddForm && !caseRecord?.caseNumber && (
               <p className="mb-6 text-sm text-danger">This case has no case number — cannot upload yet.</p>
             )}
-            <MedicalInvoicesByProvider caseId={caseId} ledger={ledger} progress={progress} />
+            <MedicalInvoicesByProvider
+              caseId={caseId}
+              ledger={ledger}
+              progress={progress}
+              trackedProviders={trackedProviders}
+              learnedRenames={learnedRenames}
+              learnedAliases={learnedAliases}
+            />
           </FinancialSection>
 
           <CaseExpensesSection caseId={caseId} caseNumber={caseRecord?.caseNumber ?? null} />
@@ -221,8 +254,8 @@ export default function MedicalExpensesPage() {
           {caseRecord && (
             <MedicalTrackerCertification
               caseRecord={caseRecord}
-              trackedProviders={trackedProviders}
-              expenses={expenses}
+              trackedProviders={aliasedTracked}
+              expenses={aliasedExpenses}
               providersNeedingReview={progress.needsReview}
               onCurrentMedicalCertification={setCertification}
             />

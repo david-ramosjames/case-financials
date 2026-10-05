@@ -10,8 +10,11 @@ import {
   fetchMedicalExpensesForCase,
   fetchMedicalTrackerAttestations,
   fetchMedicalTrackerForCase,
+  fetchLearnedProviderAliases,
+  fetchProviderAliases,
   subscribeCaseExpensesForCase,
 } from "@/lib/supabase/repo";
+import { applyProviderAliases } from "@/lib/provider-aliases";
 import {
   ATTESTATION_STATEMENT_SETS,
   CERTIFICATION_SCOPES,
@@ -84,6 +87,7 @@ export function MedicalTrackerCertification({
   const [downloading, setDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [recertifying, setRecertifying] = useState(false);
   const reviewedVersions = useRef<FinancialVersions | null>(null);
 
   useEffect(
@@ -170,6 +174,7 @@ export function MedicalTrackerCertification({
   const selectScope = (next: CertificationScope) => {
     if (next === scope) return;
     setScope(next);
+    setRecertifying(false);
     setChecked({});
     setNotice(null);
     setError(null);
@@ -191,11 +196,15 @@ export function MedicalTrackerCertification({
     try {
       const supabase = getBrowserSupabase();
       const before = await fetchFinancialVersions(supabase, caseId);
-      const [freshProviders, freshExpenses, freshCaseExpenses] = await Promise.all([
+      const [rawProviders, rawExpenses, freshCaseExpenses, aliases, learned] = await Promise.all([
         scopeIncludesMedical(scope) ? fetchMedicalTrackerForCase(supabase, caseId) : Promise.resolve([]),
         scopeIncludesMedical(scope) ? fetchMedicalExpensesForCase(supabase, caseId) : Promise.resolve([]),
         scopeIncludesExpenses(scope) ? fetchCaseExpensesForCase(supabase, caseId) : Promise.resolve([]),
+        scopeIncludesMedical(scope) ? fetchProviderAliases(supabase, caseId).catch(() => []) : Promise.resolve([]),
+        scopeIncludesMedical(scope) ? fetchLearnedProviderAliases(supabase).catch(() => []) : Promise.resolve([]),
       ]);
+      const freshProviders = applyProviderAliases(rawProviders, aliases, learned);
+      const freshExpenses = applyProviderAliases(rawExpenses, aliases, learned);
       const after = await fetchFinancialVersions(supabase, caseId);
       const updating = changedLabel(scope, before, after);
       if (updating) {
@@ -221,6 +230,7 @@ export function MedicalTrackerCertification({
       });
 
       setChecked({});
+      setRecertifying(false);
       setAttestations((prev) => [attestation, ...prev]);
       await downloadPdf(attestation);
     } catch (e) {
@@ -293,9 +303,24 @@ export function MedicalTrackerCertification({
                   {formatCentralTime(latest.attestedAt)}.
                 </p>
               </div>
-              <Button disabled={downloading} onClick={() => void downloadLatest()}>
-                {downloading ? <Spinner className="h-4 w-4" /> : `Download PDF (v${latest.pdfVersion})`}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {!recertifying && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setRecertifying(true);
+                      setChecked({});
+                      setNotice(null);
+                      setError(null);
+                    }}
+                  >
+                    Certify new version
+                  </Button>
+                )}
+                <Button disabled={downloading} onClick={() => void downloadLatest()}>
+                  {downloading ? <Spinner className="h-4 w-4" /> : `Download PDF (v${latest.pdfVersion})`}
+                </Button>
+              </div>
             </div>
           )}
 
@@ -312,7 +337,7 @@ export function MedicalTrackerCertification({
             </div>
           )}
 
-          {!isCurrent && (
+          {(!isCurrent || recertifying) && (
             <div className="rounded-xl border border-border px-5 py-5">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h3 className="text-[15px] font-semibold text-text">Required attestations</h3>
@@ -367,8 +392,22 @@ export function MedicalTrackerCertification({
                     ? `Confirm totals for ${providersNeedingReview} more provider${providersNeedingReview === 1 ? "" : "s"} under Invoices first.`
                     : allChecked
                       ? `Signing as ${user ? reviewerDisplayName(user) : "—"}. Your certification is logged.`
-                      : "Check every statement to enable the final PDF."}
+                      : recertifying && latest
+                        ? `This creates PDF v${latest.pdfVersion + 1}; v${latest.pdfVersion} stays in the history.`
+                        : "Check every statement to enable the final PDF."}
                 </span>
+                {recertifying && (
+                  <Button
+                    variant="ghost"
+                    disabled={submitting}
+                    onClick={() => {
+                      setRecertifying(false);
+                      setChecked({});
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
               </div>
             </div>
           )}

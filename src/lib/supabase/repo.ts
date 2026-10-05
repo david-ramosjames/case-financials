@@ -17,6 +17,7 @@ import type {
   MedicalTrackerProvider,
 } from "@/lib/types";
 import { caseNumberLookupKeys } from "@/lib/case-display";
+import { providerAliasKey, type LearnedProviderAlias, type ProviderAlias } from "@/lib/provider-aliases";
 import {
   normalizeSnapshot,
   type AttestationStatementRecord,
@@ -959,6 +960,179 @@ export async function reopenMedicalProviderReview(
     .eq("case_id", caseId)
     .eq("provider_key", providerKey);
   if (error) throw new Error(formatWriteError("Reopen provider", error));
+}
+
+export async function fetchProviderAliases(
+  supabase: SupabaseClient,
+  caseId: string
+): Promise<ProviderAlias[]> {
+  const { data, error } = await supabase
+    .from("case_medical_provider_aliases")
+    .select("alias_key, alias_name, canonical_name")
+    .eq("case_id", caseId);
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    aliasKey: r.alias_key as string,
+    aliasName: r.alias_name as string,
+    canonicalName: r.canonical_name as string,
+  }));
+}
+
+export function subscribeProviderAliases(
+  supabase: SupabaseClient,
+  caseId: string,
+  cb: (aliases: ProviderAlias[]) => void
+): Unsubscribe {
+  const load = async () => {
+    try {
+      cb(await fetchProviderAliases(supabase, caseId));
+    } catch (e) {
+      console.warn("[subscribeProviderAliases]", e);
+      cb([]);
+    }
+  };
+  void load();
+  const ch = supabase
+    .channel(`medical-provider-aliases:${caseId}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "case_medical_provider_aliases", filter: `case_id=eq.${caseId}` },
+      () => void load()
+    )
+    .subscribe();
+  return () => void supabase.removeChannel(ch);
+}
+
+/**
+ * Merge one provider into another: rename its records, fold its Medical Tracker row into the
+ * target's, and remember its spellings so future imports group under the target.
+ */
+export async function fetchLearnedProviderAliases(supabase: SupabaseClient): Promise<LearnedProviderAlias[]> {
+  const { data, error } = await supabase
+    .from("medical_provider_aliases")
+    .select("alias_key, alias_name, canonical_name, source_case_id, created_by, created_at")
+    .order("canonical_name");
+  if (error) throw error;
+  return (data ?? []).map((r) => ({
+    aliasKey: r.alias_key as string,
+    aliasName: r.alias_name as string,
+    canonicalName: r.canonical_name as string,
+    sourceCaseId: (r.source_case_id as string | null) ?? null,
+    createdBy: (r.created_by as string | null) ?? null,
+    createdAt: r.created_at as string,
+  }));
+}
+
+export function subscribeLearnedProviderAliases(
+  supabase: SupabaseClient,
+  cb: (aliases: LearnedProviderAlias[]) => void
+): Unsubscribe {
+  const load = async () => {
+    try {
+      cb(await fetchLearnedProviderAliases(supabase));
+    } catch (e) {
+      console.warn("[subscribeLearnedProviderAliases]", e);
+      cb([]);
+    }
+  };
+  void load();
+  const ch = supabase
+    .channel(`learned-provider-aliases:${Math.random().toString(36).slice(2)}`)
+    .on("postgres_changes", { event: "*", schema: "public", table: "medical_provider_aliases" }, () => void load())
+    .subscribe();
+  return () => void supabase.removeChannel(ch);
+}
+
+export async function deleteLearnedProviderAlias(supabase: SupabaseClient, aliasKey: string): Promise<void> {
+  const { error } = await supabase.from("medical_provider_aliases").delete().eq("alias_key", aliasKey);
+  if (error) throw new Error(formatWriteError("Remove learned merge", error));
+}
+
+export async function mergeMedicalProviders(
+  supabase: SupabaseClient,
+  input: {
+    caseId: string;
+    targetName: string;
+    sourceNames: string[];
+    sourceRecordIds: string[];
+    /** Tracker rows to combine (target row first when it exists); merged into one row. */
+    trackerRows: MedicalTrackerProvider[];
+    mergedTrackerRow: MedicalTrackerProvider | null;
+    createdBy: string | null;
+  }
+): Promise<void> {
+  const aliases = [...new Set(input.sourceNames.map((n) => n.trim()).filter(Boolean))]
+    .filter((name) => providerAliasKey(name) !== providerAliasKey(input.targetName))
+    .map((name) => ({
+      case_id: input.caseId,
+      alias_key: providerAliasKey(name),
+      alias_name: name,
+      canonical_name: input.targetName,
+      created_by: input.createdBy,
+    }));
+  if (aliases.length) {
+    const { error } = await supabase
+      .from("case_medical_provider_aliases")
+      .upsert(aliases, { onConflict: "case_id,alias_key" });
+    if (error) throw new Error(formatWriteError("Save provider alias", error));
+  }
+
+  // Earlier merges that pointed at a source provider now point at the target.
+  const { error: repointError } = await supabase
+    .from("case_medical_provider_aliases")
+    .update({ canonical_name: input.targetName })
+    .eq("case_id", input.caseId)
+    .in("canonical_name", input.sourceNames);
+  if (repointError) throw new Error(formatWriteError("Update provider aliases", repointError));
+
+  const targetKey = providerAliasKey(input.targetName);
+  await supabase
+    .from("case_medical_provider_aliases")
+    .delete()
+    .eq("case_id", input.caseId)
+    .eq("alias_key", targetKey);
+
+  // Learn the merge for every case. Best-effort: the case merge stands even if this fails.
+  try {
+    if (aliases.length) {
+      const { error } = await supabase.from("medical_provider_aliases").upsert(
+        aliases.map(({ alias_key, alias_name, canonical_name, created_by }) => ({
+          alias_key,
+          alias_name,
+          canonical_name,
+          created_by,
+          source_case_id: input.caseId,
+        })),
+        { onConflict: "alias_key" }
+      );
+      if (error) throw error;
+    }
+    await supabase
+      .from("medical_provider_aliases")
+      .update({ canonical_name: input.targetName })
+      .in("canonical_name", input.sourceNames);
+    await supabase.from("medical_provider_aliases").delete().eq("alias_key", targetKey);
+  } catch (e) {
+    console.warn("[mergeMedicalProviders] could not save learned merge", e);
+  }
+
+  if (input.sourceRecordIds.length) {
+    const { error } = await supabase
+      .from("case_medical_records")
+      .update({ provider_name: input.targetName })
+      .in("id", input.sourceRecordIds);
+    if (error) throw new Error(formatWriteError("Rename provider records", error));
+  }
+
+  const keeper = input.mergedTrackerRow;
+  if (keeper) {
+    const extraIds = input.trackerRows.map((r) => r.id).filter((id): id is string => Boolean(id) && id !== keeper.id);
+    if (extraIds.length) {
+      const { error } = await supabase.from("case_medical_tracker").delete().in("id", extraIds);
+      if (error) throw new Error(formatWriteError("Merge medical tracker", error));
+    }
+    await saveMedicalTrackerProvider(supabase, { ...keeper, providerName: input.targetName });
+  }
 }
 
 export async function markMedicalExpensePaid(

@@ -58,7 +58,7 @@ function trackerFilledScore(row: MedicalTrackerProvider): number {
   return score;
 }
 
-function mergeProviderRows(a: MedicalTrackerProvider, b: MedicalTrackerProvider): MedicalTrackerProvider {
+export function mergeProviderRows(a: MedicalTrackerProvider, b: MedicalTrackerProvider): MedicalTrackerProvider {
   const preferA = trackerFilledScore(a) >= trackerFilledScore(b);
   const base = preferA ? a : b;
   const other = preferA ? b : a;

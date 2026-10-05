@@ -7,6 +7,8 @@ import {
   confirmMedicalProviderReview,
   excludeMedicalExpenses,
   markMedicalExpensePaid,
+  mergeMedicalProviders,
+  deleteLearnedProviderAlias,
   markMedicalExpenseReviewed,
   reopenMedicalProviderReview,
   restoreMedicalExpense,
@@ -34,7 +36,11 @@ import type {
   MedicalExpenseDocumentType,
   MedicalExpensePaymentStatus,
   MedicalExpenseReviewStatus,
+  MedicalTrackerProvider,
 } from "@/lib/types";
+import { providerNamesMatch } from "@/lib/provider-name-match";
+import type { LearnedProviderAlias } from "@/lib/provider-aliases";
+import { mergeProviderRows } from "@/components/MedicalTracker";
 import { StatusDot } from "@/components/CaseFinancialHero";
 import { Badge, Button, EmptyState, Input, Select, Spinner } from "@/components/ui";
 
@@ -84,11 +90,19 @@ export function MedicalInvoicesByProvider({
   caseId,
   ledger,
   progress,
+  trackedProviders,
+  learnedRenames,
+  learnedAliases,
 }: {
   caseId: string;
   ledger: MedicalLedger;
   progress: MedicalReviewProgress;
+  trackedProviders: MedicalTrackerProvider[];
+  learnedRenames: Map<string, string>;
+  learnedAliases: LearnedProviderAlias[];
 }) {
+  const [mergingKey, setMergingKey] = useState<string | null>(null);
+  const [mergeTargetKey, setMergeTargetKey] = useState("");
   const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [filterReview, setFilterReview] = useState<"all" | "needs_review" | "reviewed">("all");
@@ -194,6 +208,86 @@ export function MedicalInvoicesByProvider({
       "Could not confirm provider totals"
     );
 
+  const mergeInto = (source: ProviderLedger, target: ProviderLedger) => {
+    const namesOf = (p: ProviderLedger) => [
+      ...new Set([p.providerName, ...p.entries.map((x) => x.expense.providerName.trim())].filter(Boolean)),
+    ];
+    const targetNames = namesOf(target);
+    const sourceNames = namesOf(source);
+    const matches = (row: MedicalTrackerProvider, names: string[]) =>
+      names.some((n) => providerNamesMatch(row.providerName, n));
+    const targetRows = trackedProviders.filter((r) => matches(r, targetNames));
+    const sourceRows = trackedProviders.filter((r) => !targetRows.includes(r) && matches(r, sourceNames));
+    const rows = [...targetRows, ...sourceRows];
+    const merged = rows.length ? rows.reduce((a, b) => mergeProviderRows(a, b)) : null;
+
+    const ok = window.confirm(
+      `Merge "${source.providerName}" (${source.entries.length} document${source.entries.length === 1 ? "" : "s"}) into "${target.providerName}"?\n\n` +
+        `Its documents will be renamed to "${target.providerName}", and this spelling will be grouped with "${target.providerName}" automatically on every case from now on.`
+    );
+    if (!ok) return;
+    setMergingKey(null);
+    setMergeTargetKey("");
+    void run(
+      () =>
+        mergeMedicalProviders(supabase(), {
+          caseId,
+          targetName: target.providerName,
+          sourceNames,
+          sourceRecordIds: source.entries.map((x) => x.expense.id),
+          trackerRows: rows,
+          mergedTrackerRow: merged ? { ...merged, id: targetRows[0]?.id ?? sourceRows[0]?.id ?? null } : null,
+          createdBy: excludedBy,
+        }),
+      "Could not merge providers"
+    );
+  };
+
+  const renderMergeControls = (provider: ProviderLedger) => {
+    const others = ledger.providers
+      .filter((p) => p.key !== provider.key)
+      .sort((a, b) => a.providerName.localeCompare(b.providerName));
+    if (!others.length) return null;
+    if (mergingKey !== provider.key) {
+      return (
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          onClick={() => {
+            setMergingKey(provider.key);
+            setMergeTargetKey("");
+          }}
+        >
+          Merge into…
+        </Button>
+      );
+    }
+    const target = others.find((p) => p.key === mergeTargetKey);
+    return (
+      <span className="flex flex-wrap items-center gap-2">
+        <Select
+          className="min-w-56 border-0 bg-surface-alt px-2 py-1.5 text-sm"
+          value={mergeTargetKey}
+          onChange={(e) => setMergeTargetKey(e.target.value)}
+        >
+          <option value="">Same provider as…</option>
+          {others.map((p) => (
+            <option key={p.key} value={p.key}>
+              {p.providerName} ({p.entries.length})
+            </option>
+          ))}
+        </Select>
+        <Button size="sm" disabled={busy || !target} onClick={() => target && mergeInto(provider, target)}>
+          Merge
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setMergingKey(null)}>
+          Cancel
+        </Button>
+      </span>
+    );
+  };
+
   const renderProviderBar = (provider: ProviderLedger) => {
     const status = progress.byKey.get(provider.key);
     const state = status?.state ?? "needs_review";
@@ -208,12 +302,14 @@ export function MedicalInvoicesByProvider({
                 ? `Resolve the ${provider.suggestedCount} suggested item${provider.suggestedCount === 1 ? "" : "s"} below, then confirm this provider's totals.`
                 : "Check each item below, then confirm this provider's totals."}
         </span>
-        {state === "needs_review" && (
+        <span className="flex flex-wrap items-center gap-2">
+        {renderMergeControls(provider)}
+        {state === "needs_review" && mergingKey !== provider.key && (
           <Button size="sm" disabled={busy || provider.suggestedCount > 0} onClick={() => void confirmProvider(provider)}>
             Confirm totals · {formatCurrency(provider.rollup.outstanding)}
           </Button>
         )}
-        {state === "reviewed" && (
+        {state === "reviewed" && mergingKey !== provider.key && (
           <Button
             size="sm"
             variant="ghost"
@@ -225,6 +321,7 @@ export function MedicalInvoicesByProvider({
             Reopen
           </Button>
         )}
+        </span>
       </div>
     );
   };
@@ -664,6 +761,24 @@ export function MedicalInvoicesByProvider({
                         {counted !== provider.entries.length ? ` · ${counted} counted` : ""}
                         {provider.excludedCount > 0 ? ` · ${provider.excludedCount} excluded` : ""}
                       </span>
+                      {(() => {
+                        const learnedNames = [
+                          ...new Set(
+                            provider.entries
+                              .map((x) => learnedRenames.get(x.expense.id))
+                              .filter((n): n is string => Boolean(n))
+                          ),
+                        ];
+                        if (!learnedNames.length) return null;
+                        return (
+                          <span
+                            className="mt-1 block text-[12px] text-accent"
+                            title="Grouped automatically because these spellings were merged on another case. Remove the merge under Learned provider merges if it's wrong."
+                          >
+                            Learned merge: includes {learnedNames.map((n) => `“${n}”`).join(", ")}
+                          </span>
+                        );
+                      })()}
                     </span>
                     {provider.suggestedCount > 0 && (
                       <span className="text-[12px] text-warning">{provider.suggestedCount} suggested</span>
@@ -719,6 +834,45 @@ export function MedicalInvoicesByProvider({
           </ul>
         )}
       </div>
+      {learnedAliases.length > 0 && (
+        <details className="mt-4 rounded-lg border border-border/60 px-6 py-3 lg:px-8">
+          <summary className="cursor-pointer text-[13px] font-medium text-text-muted">
+            Learned provider merges ({learnedAliases.length})
+          </summary>
+          <p className="mt-2 text-[12px] text-text-dim">
+            Spellings merged on any case are grouped automatically on every case. Removing one splits it back out on
+            cases where it was grouped automatically; documents you merged by hand keep their new name.
+          </p>
+          <ul className="mt-2 divide-y divide-border/40">
+            {learnedAliases.map((alias) => (
+              <li key={alias.aliasKey} className="flex flex-wrap items-center gap-3 py-2 text-sm">
+                <span className="min-w-0 flex-1">
+                  <span className="text-text">{alias.aliasName}</span>
+                  <span className="text-text-dim"> → </span>
+                  <span className="font-medium text-text">{alias.canonicalName}</span>
+                  {alias.createdBy && (
+                    <span className="ml-2 text-[12px] text-text-dim">
+                      by {alias.createdBy}
+                      {alias.sourceCaseId === caseId ? " on this case" : ""}
+                    </span>
+                  )}
+                </span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    if (!window.confirm(`Stop grouping "${alias.aliasName}" with "${alias.canonicalName}" on other cases?`)) return;
+                    void run(() => deleteLearnedProviderAlias(supabase(), alias.aliasKey), "Could not remove learned merge");
+                  }}
+                >
+                  Remove
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
     </div>
   );
 }
