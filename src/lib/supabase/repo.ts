@@ -1043,6 +1043,70 @@ export function subscribeLearnedProviderAliases(
   return () => void supabase.removeChannel(ch);
 }
 
+/** Group every source spelling under targetName on all cases (no records are renamed). */
+export async function saveLearnedProviderMerge(
+  supabase: SupabaseClient,
+  input: { targetName: string; sourceNames: string[]; sourceCaseId?: string | null; createdBy: string | null }
+): Promise<void> {
+  const targetKey = providerAliasKey(input.targetName);
+  const names = [...new Set(input.sourceNames.map((n) => n.trim()).filter(Boolean))];
+  const rows = names
+    .filter((name) => providerAliasKey(name) !== targetKey)
+    .map((name) => ({
+      alias_key: providerAliasKey(name),
+      alias_name: name,
+      canonical_name: input.targetName,
+      source_case_id: input.sourceCaseId ?? null,
+      created_by: input.createdBy,
+    }));
+  if (rows.length) {
+    const { error } = await supabase.from("medical_provider_aliases").upsert(rows, { onConflict: "alias_key" });
+    if (error) throw new Error(formatWriteError("Save learned merge", error));
+  }
+  if (names.length) {
+    const { error } = await supabase
+      .from("medical_provider_aliases")
+      .update({ canonical_name: input.targetName })
+      .in("canonical_name", names);
+    if (error) throw new Error(formatWriteError("Update learned merges", error));
+  }
+  const { error } = await supabase.from("medical_provider_aliases").delete().eq("alias_key", targetKey);
+  if (error) throw new Error(formatWriteError("Update learned merges", error));
+}
+
+export interface ProviderNameRecord {
+  id: string;
+  caseId: string | null;
+  caseNumber: string;
+  providerName: string;
+  excluded: boolean;
+}
+
+/** Lightweight provider-name index over every medical record (paged past the 1000-row API cap). */
+export async function fetchMedicalProviderNameIndex(supabase: SupabaseClient): Promise<ProviderNameRecord[]> {
+  const pageSize = 1000;
+  const out: ProviderNameRecord[] = [];
+  for (let from = 0; ; from += pageSize) {
+    const { data, error } = await supabase
+      .from("case_medical_records")
+      .select("id, case_id, case_number, provider_name, excluded_reason")
+      .order("id")
+      .range(from, from + pageSize - 1);
+    if (error) throw error;
+    for (const r of data ?? []) {
+      out.push({
+        id: r.id as string,
+        caseId: (r.case_id as string | null) ?? null,
+        caseNumber: String(r.case_number ?? ""),
+        providerName: ((r.provider_name as string | null) ?? "").trim() || "Unknown provider",
+        excluded: Boolean(r.excluded_reason),
+      });
+    }
+    if (!data || data.length < pageSize) break;
+  }
+  return out;
+}
+
 export async function deleteLearnedProviderAlias(supabase: SupabaseClient, aliasKey: string): Promise<void> {
   const { error } = await supabase.from("medical_provider_aliases").delete().eq("alias_key", aliasKey);
   if (error) throw new Error(formatWriteError("Remove learned merge", error));
@@ -1085,33 +1149,20 @@ export async function mergeMedicalProviders(
     .in("canonical_name", input.sourceNames);
   if (repointError) throw new Error(formatWriteError("Update provider aliases", repointError));
 
-  const targetKey = providerAliasKey(input.targetName);
   await supabase
     .from("case_medical_provider_aliases")
     .delete()
     .eq("case_id", input.caseId)
-    .eq("alias_key", targetKey);
+    .eq("alias_key", providerAliasKey(input.targetName));
 
   // Learn the merge for every case. Best-effort: the case merge stands even if this fails.
   try {
-    if (aliases.length) {
-      const { error } = await supabase.from("medical_provider_aliases").upsert(
-        aliases.map(({ alias_key, alias_name, canonical_name, created_by }) => ({
-          alias_key,
-          alias_name,
-          canonical_name,
-          created_by,
-          source_case_id: input.caseId,
-        })),
-        { onConflict: "alias_key" }
-      );
-      if (error) throw error;
-    }
-    await supabase
-      .from("medical_provider_aliases")
-      .update({ canonical_name: input.targetName })
-      .in("canonical_name", input.sourceNames);
-    await supabase.from("medical_provider_aliases").delete().eq("alias_key", targetKey);
+    await saveLearnedProviderMerge(supabase, {
+      targetName: input.targetName,
+      sourceNames: input.sourceNames,
+      sourceCaseId: input.caseId,
+      createdBy: input.createdBy,
+    });
   } catch (e) {
     console.warn("[mergeMedicalProviders] could not save learned merge", e);
   }
