@@ -40,6 +40,7 @@ import type {
 } from "@/lib/types";
 import { providerNamesMatch } from "@/lib/provider-name-match";
 import type { LearnedProviderAlias } from "@/lib/provider-aliases";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { mergeProviderRows } from "@/components/MedicalTracker";
 import { StatusDot } from "@/components/CaseFinancialHero";
 import { Badge, Button, EmptyState, Input, Select, Spinner } from "@/components/ui";
@@ -101,6 +102,7 @@ export function MedicalInvoicesByProvider({
   learnedRenames: Map<string, string>;
   learnedAliases: LearnedProviderAlias[];
 }) {
+  const isAdmin = useIsAdmin();
   const [mergingKey, setMergingKey] = useState<string | null>(null);
   const [mergeTargetKey, setMergeTargetKey] = useState("");
   const { user } = useAuth();
@@ -840,8 +842,10 @@ export function MedicalInvoicesByProvider({
             Learned provider merges ({learnedAliases.length})
           </summary>
           <p className="mt-2 text-[12px] text-text-dim">
-            Spellings merged on any case are grouped automatically on every case. Removing one splits it back out on
-            cases where it was grouped automatically; documents you merged by hand keep their new name.
+            Spellings merged on any case are grouped automatically on every case.{" "}
+            {isAdmin
+              ? "Removing one splits it back out on cases where it was grouped automatically; documents you merged by hand keep their new name."
+              : "Ask an admin to remove a merge that's wrong."}
           </p>
           <ul className="mt-2 divide-y divide-border/40">
             {learnedAliases.map((alias) => (
@@ -857,7 +861,7 @@ export function MedicalInvoicesByProvider({
                     </span>
                   )}
                 </span>
-                <Button
+                {isAdmin && <Button
                   size="sm"
                   variant="ghost"
                   disabled={busy}
@@ -867,7 +871,7 @@ export function MedicalInvoicesByProvider({
                   }}
                 >
                   Remove
-                </Button>
+                </Button>}
               </li>
             ))}
           </ul>

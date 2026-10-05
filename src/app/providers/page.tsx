@@ -16,6 +16,7 @@ import {
 import { createAliasResolver, providerAliasKey, type LearnedProviderAlias } from "@/lib/provider-aliases";
 import { PageSkeleton } from "@/components/PageSkeleton";
 import { useHydrated } from "@/hooks/useHydrated";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 import { compareValues, SortHeader, useSortState } from "@/lib/table-sort";
 import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Input, PageHeader, PageWrapper, Select } from "@/components/ui";
 
@@ -110,6 +111,7 @@ export default function ProvidersPage() {
   const router = useRouter();
   const hydrated = useHydrated();
   const { user, loading, supabaseReady } = useAuth();
+  const isAdmin = useIsAdmin();
   const [records, setRecords] = useState<ProviderNameRecord[] | null>(null);
   const [learned, setLearned] = useState<LearnedProviderAlias[]>([]);
   const [search, setSearch] = useState("");
@@ -134,10 +136,10 @@ export default function ProvidersPage() {
   }, []);
 
   useEffect(() => {
-    if (!supabaseReady || loading || !user) return;
+    if (!supabaseReady || loading || !user || !isAdmin) return;
     void loadRecords();
     return subscribeLearnedProviderAliases(getBrowserSupabase(), setLearned);
-  }, [user, loading, supabaseReady, loadRecords]);
+  }, [user, loading, supabaseReady, isAdmin, loadRecords]);
 
   const groups = useMemo(() => (records ? buildGroups(records, learned) : []), [records, learned]);
   const byKey = useMemo(() => new Map(groups.map((g) => [g.key, g])), [groups]);
@@ -206,7 +208,19 @@ export default function ProvidersPage() {
     void run(() => deleteLearnedProviderAlias(getBrowserSupabase(), spelling.aliasKey!), "Could not split provider");
   };
 
-  if (!hydrated || loading || (user && records === null)) {
+  if (!hydrated || loading || (user && isAdmin === null)) {
+    return <PageSkeleton label="Loading providers…" />;
+  }
+
+  if (user && !isAdmin) {
+    return (
+      <PageWrapper>
+        <EmptyState title="Admins only" description="Ask an admin if providers need to be merged or split." />
+      </PageWrapper>
+    );
+  }
+
+  if (user && records === null) {
     return <PageSkeleton label="Loading providers…" />;
   }
 

@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui";
+import { useIsAdmin } from "@/hooks/useIsAdmin";
 
 const LOGO_URL =
   "https://res.cloudinary.com/dmmxuoa3p/image/upload/v1783363036/logo_rdt8yk.webp";
 
 export function NavBar() {
   const { user, logout, loading } = useAuth();
+  const isAdmin = useIsAdmin();
 
   return (
     <header className="border-b border-navy-deep bg-navy text-white">
@@ -30,9 +32,11 @@ export function NavBar() {
           <Link href="/log" className="text-white/80 hover:text-white">
             Expense Log
           </Link>
-          <Link href="/providers" className="text-white/80 hover:text-white">
-            Providers
-          </Link>
+          {isAdmin && (
+            <Link href="/providers" className="text-white/80 hover:text-white">
+              Providers
+            </Link>
+          )}
           {!loading && user ? (
             <>
               <span className="hidden text-white/60 sm:inline">{user.email}</span>
