@@ -1007,6 +1007,16 @@ export function subscribeProviderAliases(
  * Merge one provider into another: rename its records, fold its Medical Tracker row into the
  * target's, and remember its spellings so future imports group under the target.
  */
+/** One spelling per alias key; Postgres rejects an upsert batch that hits the same key twice. */
+function uniqueByAliasKey(names: string[]): string[] {
+  const byKey = new Map<string, string>();
+  for (const name of names) {
+    const key = providerAliasKey(name);
+    if (!byKey.has(key)) byKey.set(key, name);
+  }
+  return [...byKey.values()];
+}
+
 export async function fetchLearnedProviderAliases(supabase: SupabaseClient): Promise<LearnedProviderAlias[]> {
   const { data, error } = await supabase
     .from("medical_provider_aliases")
@@ -1050,7 +1060,7 @@ export async function saveLearnedProviderMerge(
 ): Promise<void> {
   const targetKey = providerAliasKey(input.targetName);
   const names = [...new Set(input.sourceNames.map((n) => n.trim()).filter(Boolean))];
-  const rows = names
+  const rows = uniqueByAliasKey(names)
     .filter((name) => providerAliasKey(name) !== targetKey)
     .map((name) => ({
       alias_key: providerAliasKey(name),
@@ -1125,7 +1135,7 @@ export async function mergeMedicalProviders(
     createdBy: string | null;
   }
 ): Promise<void> {
-  const aliases = [...new Set(input.sourceNames.map((n) => n.trim()).filter(Boolean))]
+  const aliases = uniqueByAliasKey(input.sourceNames.map((n) => n.trim()).filter(Boolean))
     .filter((name) => providerAliasKey(name) !== providerAliasKey(input.targetName))
     .map((name) => ({
       case_id: input.caseId,

@@ -22,6 +22,8 @@ import { Badge, Button, Card, CardBody, CardHeader, EmptyState, Input, PageHeade
 
 type SortKey = "name" | "spellings" | "cases" | "documents";
 
+const CUSTOM_TARGET = "__custom__";
+
 interface Spelling {
   name: string;
   documents: number;
@@ -117,6 +119,7 @@ export default function ProvidersPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [targetKey, setTargetKey] = useState("");
+  const [customName, setCustomName] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -158,7 +161,14 @@ export default function ProvidersPage() {
   );
 
   useEffect(() => {
-    if (selectedGroups.length && !selectedGroups.some((g) => g.key === targetKey)) {
+    if (selectedGroups.length === 1 && targetKey !== CUSTOM_TARGET) {
+      setTargetKey(CUSTOM_TARGET);
+      setCustomName(selectedGroups[0].name);
+    } else if (
+      selectedGroups.length > 1 &&
+      targetKey !== CUSTOM_TARGET &&
+      !selectedGroups.some((g) => g.key === targetKey)
+    ) {
       setTargetKey([...selectedGroups].sort((a, b) => b.documents - a.documents)[0].key);
     }
   }, [selectedGroups, targetKey]);
@@ -182,23 +192,30 @@ export default function ProvidersPage() {
     return next;
   };
 
+  const mergeTargetName =
+    targetKey === CUSTOM_TARGET ? customName.trim() : (byKey.get(targetKey)?.name ?? "");
+
   const mergeSelected = () => {
-    const target = byKey.get(targetKey);
-    if (!target || selectedGroups.length < 2) return;
-    const sources = selectedGroups.filter((g) => g.key !== target.key);
+    const targetName = mergeTargetName;
+    if (!targetName || !selectedGroups.length) return;
+    const targetGroupKey = providerAliasKey(targetName);
+    const sources = selectedGroups.filter((g) => g.key !== targetGroupKey || g.name !== targetName);
+    if (!sources.length) return;
+    const verb = selectedGroups.length === 1 ? "Rename" : "Group";
     const ok = window.confirm(
-      `Group ${sources.map((g) => `"${g.name}"`).join(", ")} under "${target.name}" on every case?\n\n` +
+      `${verb} ${sources.map((g) => `"${g.name}"`).join(", ")} ${selectedGroups.length === 1 ? "to" : "under"} "${targetName}" on every case?\n\n` +
         "Documents keep their original names, so you can split them back out here at any time. " +
         "Affected providers go back to Needs Review on their cases."
     );
     if (!ok) return;
     void run(async () => {
       await saveLearnedProviderMerge(getBrowserSupabase(), {
-        targetName: target.name,
+        targetName,
         sourceNames: sources.flatMap((g) => [g.name, ...g.spellings.map((s) => s.name)]),
         createdBy: user?.email ?? null,
       });
       setSelected(new Set());
+      setTargetKey("");
     }, "Could not merge providers");
   };
 
@@ -267,22 +284,54 @@ export default function ProvidersPage() {
               <label className="mb-1 block text-xs font-medium text-text-muted">Search</label>
               <Input placeholder="Provider name or spelling…" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
-            {selectedGroups.length >= 2 ? (
+            {selectedGroups.length >= 1 ? (
               <div className="flex flex-wrap items-end gap-2">
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-text-muted">
-                    Merge {selectedGroups.length} selected into
-                  </label>
-                  <Select className="min-w-[16rem]" value={targetKey} onChange={(e) => setTargetKey(e.target.value)}>
-                    {selectedGroups.map((g) => (
-                      <option key={g.key} value={g.key}>
-                        {g.name}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
-                <Button disabled={busy} onClick={mergeSelected}>
-                  Merge
+                {selectedGroups.length > 1 && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-text-muted">
+                      Merge {selectedGroups.length} selected into
+                    </label>
+                    <Select
+                      className="min-w-[16rem]"
+                      value={targetKey}
+                      onChange={(e) => {
+                        setTargetKey(e.target.value);
+                        if (e.target.value === CUSTOM_TARGET && !customName.trim()) {
+                          setCustomName(byKey.get(targetKey)?.name ?? "");
+                        }
+                      }}
+                    >
+                      {selectedGroups.map((g) => (
+                        <option key={g.key} value={g.key}>
+                          {g.name}
+                        </option>
+                      ))}
+                      <option value={CUSTOM_TARGET}>Other name…</option>
+                    </Select>
+                  </div>
+                )}
+                {targetKey === CUSTOM_TARGET && (
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-text-muted">
+                      {selectedGroups.length === 1 ? "Rename to" : "Merged name"}
+                    </label>
+                    <Input
+                      className="min-w-[18rem]"
+                      value={customName}
+                      onChange={(e) => setCustomName(e.target.value)}
+                      placeholder="e.g. Baylor Scott & White Medical Center"
+                    />
+                  </div>
+                )}
+                <Button
+                  disabled={
+                    busy ||
+                    !mergeTargetName ||
+                    (selectedGroups.length === 1 && mergeTargetName === selectedGroups[0].name)
+                  }
+                  onClick={mergeSelected}
+                >
+                  {selectedGroups.length === 1 ? "Rename" : "Merge"}
                 </Button>
                 <Button variant="ghost" disabled={busy} onClick={() => setSelected(new Set())}>
                   Clear
@@ -290,7 +339,7 @@ export default function ProvidersPage() {
               </div>
             ) : (
               <p className="pb-2 text-[13px] text-text-dim">
-                {selectedGroups.length === 1 ? "Select one more provider to merge." : "Tick two or more providers to merge them."}
+                Tick two or more providers to merge them, or one to rename it.
               </p>
             )}
           </div>
