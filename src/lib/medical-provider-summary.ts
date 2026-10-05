@@ -71,7 +71,7 @@ export function deriveLineAmounts(e: MedicalExpense): {
 
 export function providerGroupKey(name: string): string {
   const tokens = canonicalizeProviderTokens(name);
-  return tokens.length ? tokens.join(" ") : name.trim().toLowerCase();
+  return tokens.length ? tokens.join("") : name.trim().toLowerCase();
 }
 
 /** Prefer one display name for near-duplicate provider labels on a case. */

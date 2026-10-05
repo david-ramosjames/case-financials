@@ -43,7 +43,8 @@ export function buildReviewProgress(
   reviews: MedicalProviderReview[],
   certifiedKeys: Set<string>
 ): MedicalReviewProgress {
-  const reviewByKey = new Map(reviews.map((r) => [r.providerKey, r]));
+  // Older review rows stored keys with spaces between tokens.
+  const reviewByKey = new Map(reviews.map((r) => [r.providerKey.replace(/ /g, ""), r]));
   const byKey = new Map<string, ProviderReviewStatus>();
   for (const provider of ledger.providers) {
     const review = reviewByKey.get(provider.key) ?? null;

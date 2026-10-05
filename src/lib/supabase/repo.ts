@@ -128,7 +128,7 @@ function medicalExpenseToRow(patch: Partial<MedicalExpense>): Record<string, unk
     document_type: patch.documentType,
     payment_status: patch.paymentStatus,
     review_status: patch.reviewStatus,
-    updated_at: Date.now(),
+    updated_at: new Date().toISOString(),
   });
 }
 
@@ -813,7 +813,7 @@ export async function markMedicalExpenseReviewed(
 ): Promise<void> {
   const { error } = await supabase
     .from("case_medical_records")
-    .update({ review_status: "reviewed", updated_at: Date.now() })
+    .update({ review_status: "reviewed", updated_at: new Date().toISOString() })
     .eq("id", expenseId);
   if (error) throw new Error(formatWriteError("Mark reviewed", error));
 }
@@ -967,7 +967,7 @@ export async function markMedicalExpensePaid(
 ): Promise<void> {
   const { error } = await supabase
     .from("case_medical_records")
-    .update({ payment_status: "paid", updated_at: Date.now() })
+    .update({ payment_status: "paid", updated_at: new Date().toISOString() })
     .eq("id", expenseId);
   if (error) throw new Error(formatWriteError("Mark paid", error));
 }
@@ -1066,7 +1066,7 @@ function caseExpenseToRow(patch: Partial<CaseExpense>): Record<string, unknown> 
     related_party: patch.relatedParty,
     document_type: patch.documentType,
     review_status: patch.reviewStatus,
-    updated_at: Date.now(),
+    updated_at: new Date().toISOString(),
   });
 }
 
@@ -1170,7 +1170,7 @@ export async function markCaseExpenseReviewed(
 ): Promise<void> {
   const { error } = await supabase
     .from("case_expenses")
-    .update({ review_status: "reviewed", updated_at: Date.now() })
+    .update({ review_status: "reviewed", updated_at: new Date().toISOString() })
     .eq("id", expenseId);
   if (error) throw new Error(formatWriteError("Mark case expense reviewed", error));
 }
@@ -1185,7 +1185,7 @@ export async function markCaseExpensePaid(
     .update({
       payment_status: "paid",
       paid_amount: amount,
-      updated_at: Date.now(),
+      updated_at: new Date().toISOString(),
     })
     .eq("id", expenseId);
   if (error) throw new Error(formatWriteError("Mark case expense paid", error));

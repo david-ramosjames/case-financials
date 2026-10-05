@@ -52,6 +52,8 @@ export function providerNamesMatch(a: string, b: string): boolean {
   const right = canonicalizeProviderTokens(b);
   if (!left.length || !right.length) return false;
   if (left.join(" ") === right.join(" ")) return true;
+  // "StDavid's" vs "St. David's": same letters, different word breaks.
+  if (left.join("") === right.join("")) return true;
 
   const [smaller, larger] = left.length <= right.length ? [left, right] : [right, left];
   const isSubset = smaller.every((token) => larger.includes(token));

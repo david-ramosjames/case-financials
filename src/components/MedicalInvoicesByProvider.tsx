@@ -295,18 +295,25 @@ export function MedicalInvoicesByProvider({
   const renderActions = (entry: LedgerEntry, provider: ProviderLedger) => {
     const e = entry.expense;
     if (entry.status === "suggested") {
+      const duplicate = entry.reason === "duplicate";
       return (
         <>
-          <Button size="sm" disabled={busy} onClick={() => void confirmSuggestions([entry])}>
-            Confirm
+          <Button
+            size="sm"
+            disabled={busy}
+            title="Exclude this record from totals"
+            onClick={() => void confirmSuggestions([entry])}
+          >
+            {duplicate ? "Yes, exclude duplicate" : "Yes, exclude old balance"}
           </Button>
           <Button
             size="sm"
             variant="ghost"
             disabled={busy}
+            title="Count this record in totals and stop flagging it"
             onClick={() => void run(() => setMedicalSuggestionDismissed(supabase(), e.id, true), "Could not update record")}
           >
-            Keep counting
+            {duplicate ? "No, it's a separate charge" : "No, still current"}
           </Button>
         </>
       );
@@ -612,11 +619,12 @@ export function MedicalInvoicesByProvider({
               {ledger.suggestions.length} document{ledger.suggestions.length === 1 ? " looks" : "s look"} like a
               duplicate or an older balance.
             </span>{" "}
-            {ledger.suggestions.length === 1 ? "It's" : "They're"} already left out of totals. Confirm to exclude, or
-            choose “Keep counting” on any that should stay.
+            {ledger.suggestions.length === 1 ? "It's" : "They're"} left out of totals for now. Exclude{" "}
+            {ledger.suggestions.length === 1 ? "it" : "them"}, or mark any that are real charges as “No, it’s a
+            separate charge” / “No, still current” to count them.
           </p>
           <Button size="sm" disabled={busy} onClick={() => void confirmSuggestions(ledger.suggestions)}>
-            {busy ? <Spinner className="h-4 w-4" /> : `Confirm all (${ledger.suggestions.length})`}
+            {busy ? <Spinner className="h-4 w-4" /> : `Exclude all ${ledger.suggestions.length} suggested`}
           </Button>
         </div>
       )}
