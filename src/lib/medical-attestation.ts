@@ -187,6 +187,7 @@ export interface SnapshotProvider {
 export interface SnapshotInvoice {
   id: string;
   providerName: string;
+  patientName: string | null;
   documentType: MedicalExpenseDocumentType;
   accountNumber: string | null;
   dateOfService: string | null;
@@ -201,6 +202,8 @@ export interface SnapshotInvoice {
   charge: number;
   paid: number;
   adjusted: number;
+  healthInsurancePaid: number;
+  insurancePaid: number;
   outstanding: number;
 }
 
@@ -336,6 +339,7 @@ function buildMedicalSection(
     .map<SnapshotInvoice>((e) => ({
       id: e.id,
       providerName: e.providerName.trim() || "Unknown provider",
+      patientName: e.patientName?.trim() || null,
       documentType: e.documentType,
       accountNumber: e.accountNumber,
       dateOfService: e.dateOfService,

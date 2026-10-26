@@ -211,7 +211,7 @@ export default function MedicalExpensesPage() {
             id="financial-summary"
             level={3}
             title="Financial Summary"
-            description="Current balance by provider. Duplicates and older statements are left out."
+            description="Current balance by patient and provider. Duplicates and older statements are left out."
           >
             <MedicalProviderSummary expenses={counted} needsReview={needsReview} />
           </FinancialSection>

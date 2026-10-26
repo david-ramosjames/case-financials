@@ -1,5 +1,5 @@
 import type { MedicalLedger, ProviderLedger } from "@/lib/medical-ledger";
-import { alignProviderName, providerGroupKey } from "@/lib/medical-provider-summary";
+import { alignProviderName, ledgerGroupKey } from "@/lib/medical-provider-summary";
 import type { MedicalTrackerAttestation } from "@/lib/medical-attestation";
 import type { MedicalProviderReview } from "@/lib/types";
 
@@ -34,7 +34,9 @@ export function certifiedProviderKeys(
   const keys = new Set<string>();
   const providers = attestation?.snapshot.medical?.summary.providers ?? [];
   const liveNames = ledger.providers.map((p) => p.providerName);
-  for (const p of providers) keys.add(providerGroupKey(alignProviderName(p.providerName, liveNames)));
+  for (const p of providers) {
+    keys.add(ledgerGroupKey(p.patientName, alignProviderName(p.providerName, liveNames)));
+  }
   return keys;
 }
 

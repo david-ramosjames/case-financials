@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { formatIncidentDate } from "@/lib/case-display";
+import { hasMultiplePatients } from "@/lib/medical-provider-summary";
 import { CASE_EXPENSE_PAYMENT_LABELS } from "@/lib/case-expense-display";
 import {
   ATTESTATION_STATEMENT_SETS,
@@ -99,24 +100,52 @@ export function downloadMedicalTrackerPdf(attestation: MedicalTrackerAttestation
 function drawMedicalSummary(doc: jsPDF, medical: MedicalSnapshotSection, startY: number, title: string | null) {
   const totals = medical.summary.totals;
   const y = title ? sectionTitle(doc, title, startY) : startY;
+  const split = hasMultiplePatients(medical.summary.providers.map((p) => p.patientName));
+  const amountHead = ["Total Charges", "Adjustments", "Health Ins. Paid", "Ins. Paid on Bills", "Outstanding Balance"];
+  const amountCells = (p: (typeof medical.summary.providers)[number]) => {
+    const legacy = p.healthInsurancePaid == null && p.insurancePaid == null;
+    return [
+      money(p.charge),
+      money(p.adjusted),
+      money(legacy ? 0 : p.healthInsurancePaid),
+      money(legacy ? p.paid : p.insurancePaid),
+      money(p.outstanding),
+    ];
+  };
+  const head = split ? ["Patient", "Provider", ...amountHead] : ["Provider", ...amountHead];
+  const empty = split
+    ? ["No medical providers recorded", "", "", "", "", "", ""]
+    : ["No medical providers recorded", "", "", "", "", ""];
+  const firstAmount = split ? 2 : 1;
   autoTable(doc, {
     ...tableDefaults,
     startY: y,
-    styles: { ...tableDefaults.styles, fontSize: 10.5, cellPadding: { top: 7, bottom: 7, left: 8, right: 8 } },
-    head: [["Provider", "Total Charges", "Adjustments", "Paid", "Outstanding Balance"]],
+    styles: { ...tableDefaults.styles, fontSize: split ? 8.5 : 9, cellPadding: { top: 6, bottom: 6, left: 5, right: 5 } },
+    head: [head],
     body: medical.summary.providers.length
-      ? medical.summary.providers.map((p) => [
-          p.providerName,
-          money(p.charge),
-          money(p.adjusted),
-          money(p.paid),
-          money(p.outstanding),
-        ])
-      : [["No medical providers recorded", "", "", "", ""]],
-    foot: [["Total", money(totals.charge), money(totals.adjusted), money(totals.paid), money(totals.outstanding)]],
+      ? medical.summary.providers.map((p) =>
+          split
+            ? [p.patientName?.trim() || "Patient not set", p.providerName, ...amountCells(p)]
+            : [p.providerName, ...amountCells(p)]
+        )
+      : [empty],
+    foot: [[
+      ...(split ? ["", "Total"] : ["Total"]),
+      money(totals.charge),
+      money(totals.adjusted),
+      money(totals.healthInsurancePaid == null && totals.insurancePaid == null ? 0 : totals.healthInsurancePaid),
+      money(totals.healthInsurancePaid == null && totals.insurancePaid == null ? totals.paid : totals.insurancePaid),
+      money(totals.outstanding),
+    ]],
     footStyles,
-    columnStyles: { 1: { cellWidth: 115 }, 2: { cellWidth: 115 }, 3: { cellWidth: 115 }, 4: { cellWidth: 135 } },
-    didParseCell: rightAlignColumns([1, 2, 3, 4]),
+    columnStyles: {
+      [firstAmount]: { cellWidth: split ? 78 : 88 },
+      [firstAmount + 1]: { cellWidth: split ? 78 : 88 },
+      [firstAmount + 2]: { cellWidth: split ? 82 : 92 },
+      [firstAmount + 3]: { cellWidth: split ? 88 : 100 },
+      [firstAmount + 4]: { cellWidth: split ? 96 : 108 },
+    },
+    didParseCell: rightAlignColumns([firstAmount, firstAmount + 1, firstAmount + 2, firstAmount + 3, firstAmount + 4]),
   });
 }
 

@@ -35,9 +35,13 @@ export function ManualMedicalExpenseForm({ caseId, caseNumber, onClose }: BasePr
   const [dropboxLink, setDropboxLink] = useState("");
   const [fileName, setFileName] = useState("");
   const [providerName, setProviderName] = useState("");
+  const [patientName, setPatientName] = useState("");
   const [documentType, setDocumentType] = useState<MedicalExpenseDocumentType>("medical_bill");
   const [currentBalance, setCurrentBalance] = useState("");
   const [originalCharges, setOriginalCharges] = useState("");
+  const [adjustmentAmount, setAdjustmentAmount] = useState("");
+  const [healthInsurancePaid, setHealthInsurancePaid] = useState("");
+  const [insurancePaid, setInsurancePaid] = useState("");
   const [dateOfService, setDateOfService] = useState("");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -50,10 +54,14 @@ export function ManualMedicalExpenseForm({ caseId, caseNumber, onClose }: BasePr
         dropboxPermalink: dropboxLink,
         fileName: fileName || null,
         providerName,
+        patientName: patientName || null,
         documentType,
         dateOfService: dateOfService || null,
         currentBalance: currentBalance ? Number(currentBalance) : null,
         originalCharges: originalCharges ? Number(originalCharges) : null,
+        adjustmentAmount: adjustmentAmount ? Number(adjustmentAmount) : null,
+        healthInsurancePaid: healthInsurancePaid ? Number(healthInsurancePaid) : null,
+        insurancePaid: insurancePaid ? Number(insurancePaid) : null,
       });
       onClose();
     } catch (e) {
@@ -61,7 +69,7 @@ export function ManualMedicalExpenseForm({ caseId, caseNumber, onClose }: BasePr
     } finally {
       setSaving(false);
     }
-  }, [caseId, caseNumber, dropboxLink, fileName, providerName, documentType, dateOfService, currentBalance, originalCharges, onClose]);
+  }, [caseId, caseNumber, dropboxLink, fileName, providerName, patientName, documentType, dateOfService, currentBalance, originalCharges, adjustmentAmount, healthInsurancePaid, insurancePaid, onClose]);
 
   return (
     <ManualFormShell
@@ -80,6 +88,9 @@ export function ManualMedicalExpenseForm({ caseId, caseNumber, onClose }: BasePr
         <Field label="Provider" required>
           <Input placeholder="Provider or facility name" value={providerName} onChange={(e) => setProviderName(e.target.value)} />
         </Field>
+        <Field label="Patient">
+          <Input placeholder="Patient on this document" value={patientName} onChange={(e) => setPatientName(e.target.value)} />
+        </Field>
         <Field label="Document type">
           <Select value={documentType} onChange={(e) => setDocumentType(e.target.value as MedicalExpenseDocumentType)}>
             {(Object.keys(MEDICAL_DOC_LABELS) as MedicalExpenseDocumentType[]).map((t) => (
@@ -95,6 +106,15 @@ export function ManualMedicalExpenseForm({ caseId, caseNumber, onClose }: BasePr
         </Field>
         <Field label="Balance due">
           <Input type="number" step="0.01" placeholder="0.00" value={currentBalance} onChange={(e) => setCurrentBalance(e.target.value)} />
+        </Field>
+        <Field label="Adjustments">
+          <Input type="number" step="0.01" placeholder="0.00" value={adjustmentAmount} onChange={(e) => setAdjustmentAmount(e.target.value)} />
+        </Field>
+        <Field label="Health insurance paid">
+          <Input type="number" step="0.01" placeholder="0.00" value={healthInsurancePaid} onChange={(e) => setHealthInsurancePaid(e.target.value)} />
+        </Field>
+        <Field label="Insurance paid on bills">
+          <Input type="number" step="0.01" placeholder="0.00" value={insurancePaid} onChange={(e) => setInsurancePaid(e.target.value)} />
         </Field>
       </div>
     </ManualFormShell>

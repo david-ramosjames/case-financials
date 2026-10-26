@@ -4,6 +4,8 @@ import { useMemo } from "react";
 import {
   buildMedicalProviderSummary,
   formatMedicalMoney,
+  hasMultiplePatients,
+  patientGroupKey,
 } from "@/lib/medical-provider-summary";
 import type { MedicalExpense } from "@/lib/types";
 
@@ -20,6 +22,14 @@ export function MedicalProviderSummary({
     () => [...providers].sort((a, b) => b.outstanding - a.outstanding || a.providerName.localeCompare(b.providerName)),
     [providers]
   );
+  const split = hasMultiplePatients(sorted.map((row) => row.patientName));
+  const sections = split
+    ? [...new Set(sorted.map((row) => patientGroupKey(row.patientName)))].map((key) => ({
+        key,
+        label: sorted.find((row) => patientGroupKey(row.patientName) === key)?.patientName.trim() || "Patient not set",
+        rows: sorted.filter((row) => patientGroupKey(row.patientName) === key),
+      }))
+    : [{ key: "all", label: "", rows: sorted }];
 
   return (
     <div>
@@ -34,10 +44,16 @@ export function MedicalProviderSummary({
           No medical providers yet — summary appears when invoices are logged.
         </p>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {sorted.map((row) => (
+        <div className="space-y-8">
+          {sections.map((section) => (
+            <section key={section.key}>
+              {section.label && (
+                <h3 className="mb-3 font-serif text-xl tracking-tight text-text">{section.label}</h3>
+              )}
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                {section.rows.map((row) => (
             <article
-              key={row.providerName}
+              key={`${section.key}-${row.providerName}`}
               className="rounded-xl bg-surface-alt/40 px-5 py-5 transition hover:bg-surface-alt/70"
             >
               <h3 className="font-serif text-lg leading-snug tracking-tight text-text">
@@ -57,21 +73,28 @@ export function MedicalProviderSummary({
                   </span>
                 </span>
                 <span>
-                  Paid{" "}
+                  Adjustments{" "}
                   <span className="tabular-nums text-text-secondary">
-                    {formatMedicalMoney(row.paid, false)}
+                    {formatMedicalMoney(row.adjusted, false)}
                   </span>
                 </span>
-                {row.adjusted > 0 && (
-                  <span>
-                    Adjusted{" "}
-                    <span className="tabular-nums text-text-secondary">
-                      {formatMedicalMoney(row.adjusted, false)}
-                    </span>
+                <span>
+                  Health ins.{" "}
+                  <span className="tabular-nums text-text-secondary">
+                    {formatMedicalMoney(row.healthInsurancePaid, false)}
                   </span>
-                )}
+                </span>
+                <span>
+                  Ins. paid{" "}
+                  <span className="tabular-nums text-text-secondary">
+                    {formatMedicalMoney(row.insurancePaid, false)}
+                  </span>
+                </span>
               </div>
             </article>
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       )}
@@ -91,9 +114,21 @@ export function MedicalProviderSummary({
             </span>
           </span>
           <span>
-            Paid{" "}
+            Adjustments{" "}
             <span className="tabular-nums text-text-secondary">
-              {formatMedicalMoney(totals.paid, false)}
+              {formatMedicalMoney(totals.adjusted, false)}
+            </span>
+          </span>
+          <span>
+            Health ins.{" "}
+            <span className="tabular-nums text-text-secondary">
+              {formatMedicalMoney(totals.healthInsurancePaid, false)}
+            </span>
+          </span>
+          <span>
+            Ins. paid on bills{" "}
+            <span className="tabular-nums text-text-secondary">
+              {formatMedicalMoney(totals.insurancePaid, false)}
             </span>
           </span>
           <span>

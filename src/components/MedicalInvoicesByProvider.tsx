@@ -16,7 +16,7 @@ import {
   updateMedicalExpense,
 } from "@/lib/supabase/repo";
 import { isMedicalPaid, needsMedicalReview } from "@/lib/expense-review";
-import { deriveLineAmounts } from "@/lib/medical-provider-summary";
+import { deriveLineAmounts, hasMultiplePatients, patientGroupKey } from "@/lib/medical-provider-summary";
 import {
   DOCUMENT_TYPE_LABELS,
   PAYMENT_STATUS_LABELS,
@@ -103,6 +103,9 @@ export function MedicalInvoicesByProvider({
   learnedAliases: LearnedProviderAlias[];
 }) {
   const isAdmin = useIsAdmin();
+  const [amountDrafts, setAmountDrafts] = useState<
+    Record<string, { adjustment: string; health: string; insurance: string }>
+  >({});
   const [mergingKey, setMergingKey] = useState<string | null>(null);
   const [mergeTargetKey, setMergeTargetKey] = useState("");
   const { user } = useAuth();
@@ -131,7 +134,7 @@ export function MedicalInvoicesByProvider({
       if (filterPayment !== "all" && e.paymentStatus !== filterPayment) return false;
       const q = search.trim().toLowerCase();
       if (!q) return true;
-      return [e.providerName, e.accountNumber, e.documentType, e.payeeName, e.dropboxFilePath]
+      return [e.providerName, e.patientName, e.accountNumber, e.documentType, e.payeeName, e.dropboxFilePath]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -145,11 +148,13 @@ export function MedicalInvoicesByProvider({
     .filter(({ visible }) => visible.length > 0)
     .sort(
       (a, b) =>
+        (a.provider.patientName || "\uffff").localeCompare(b.provider.patientName || "\uffff") ||
         stateRank(a.provider.key) - stateRank(b.provider.key) ||
         b.provider.suggestedCount - a.provider.suggestedCount ||
         b.provider.rollup.outstanding - a.provider.rollup.outstanding ||
         a.provider.providerName.localeCompare(b.provider.providerName)
     );
+  const splitByPatient = hasMultiplePatients(providers.map(({ provider }) => provider.patientName));
 
   const run = useCallback(async (action: () => Promise<void>, failure: string) => {
     setBusy(true);
@@ -276,7 +281,8 @@ export function MedicalInvoicesByProvider({
           <option value="">Same provider as…</option>
           {others.map((p) => (
             <option key={p.key} value={p.key}>
-              {p.providerName} ({p.entries.length})
+              {p.providerName}
+              {p.patientName ? ` · ${p.patientName}` : ""} ({p.entries.length})
             </option>
           ))}
         </Select>
@@ -287,6 +293,59 @@ export function MedicalInvoicesByProvider({
           Cancel
         </Button>
       </span>
+    );
+  };
+
+  const saveProviderAmounts = (provider: ProviderLedger) => {
+    const entry =
+      provider.entries.find((e) => e.isCurrentBalance && e.status === "counted") ??
+      provider.entries.find((e) => e.status === "counted");
+    if (!entry) return;
+    const draft = amountDrafts[entry.expense.id];
+    if (!draft) return;
+    void run(async () => {
+      await updateMedicalExpense(supabase(), entry.expense.id, {
+        adjustmentAmount: moneyOrNull(draft.adjustment),
+        healthInsurancePaid: moneyOrNull(draft.health),
+        insurancePaid: moneyOrNull(draft.insurance),
+      });
+      setAmountDrafts((prev) => {
+        const next = { ...prev };
+        delete next[entry.expense.id];
+        return next;
+      });
+    }, "Could not save amounts");
+  };
+
+  const renderAmountFields = (provider: ProviderLedger) => {
+    const entry =
+      provider.entries.find((e) => e.isCurrentBalance && e.status === "counted") ??
+      provider.entries.find((e) => e.status === "counted");
+    if (!entry) return null;
+    const e = entry.expense;
+    const draft = amountDrafts[e.id] ?? {
+      adjustment: e.adjustmentAmount == null ? "" : String(e.adjustmentAmount),
+      health: e.healthInsurancePaid == null ? "" : String(e.healthInsurancePaid),
+      insurance: e.insurancePaid == null ? "" : String(e.insurancePaid),
+    };
+    const setField = (field: "adjustment" | "health" | "insurance", value: string) =>
+      setAmountDrafts((prev) => ({ ...prev, [e.id]: { ...draft, [field]: value } }));
+    return (
+      <div className="flex flex-wrap items-end gap-3 px-6 pb-3 lg:px-8">
+        <p className="w-full text-[12px] text-text-dim">
+          Saved on the current balance. Leave a box blank to keep the calculated amount.
+        </p>
+        <AmountField label="Adjustments" value={draft.adjustment} onChange={(v) => setField("adjustment", v)} />
+        <AmountField label="Health insurance paid" value={draft.health} onChange={(v) => setField("health", v)} />
+        <AmountField
+          label="Insurance paid on bills"
+          value={draft.insurance}
+          onChange={(v) => setField("insurance", v)}
+        />
+        <Button size="sm" disabled={busy || !amountDrafts[e.id]} onClick={() => saveProviderAmounts(provider)}>
+          Save amounts
+        </Button>
+      </div>
     );
   };
 
@@ -496,6 +555,14 @@ export function MedicalInvoicesByProvider({
               />
             </label>
             <label className="text-[12px] text-text-dim">
+              Patient
+              <Input
+                className="mt-1 border-0 bg-surface px-2 py-1.5 text-sm"
+                value={row.patientName ?? ""}
+                onChange={(ev) => setEditDraft((d) => ({ ...d, patientName: ev.target.value || null }))}
+              />
+            </label>
+            <label className="text-[12px] text-text-dim">
               Document
               <Select
                 className="mt-1 border-0 bg-surface px-2 py-1.5 text-sm"
@@ -546,6 +613,36 @@ export function MedicalInvoicesByProvider({
                 className="mt-1 border-0 bg-surface px-2 py-1.5 text-sm"
                 value={row.currentBalance ?? ""}
                 onChange={(ev) => setEditDraft((d) => ({ ...d, currentBalance: num(ev.target.value) }))}
+              />
+            </label>
+            <label className="text-[12px] text-text-dim">
+              Adjustments
+              <Input
+                type="number"
+                step="0.01"
+                className="mt-1 border-0 bg-surface px-2 py-1.5 text-sm"
+                value={row.adjustmentAmount ?? ""}
+                onChange={(ev) => setEditDraft((d) => ({ ...d, adjustmentAmount: num(ev.target.value) }))}
+              />
+            </label>
+            <label className="text-[12px] text-text-dim">
+              Health insurance paid
+              <Input
+                type="number"
+                step="0.01"
+                className="mt-1 border-0 bg-surface px-2 py-1.5 text-sm"
+                value={row.healthInsurancePaid ?? ""}
+                onChange={(ev) => setEditDraft((d) => ({ ...d, healthInsurancePaid: num(ev.target.value) }))}
+              />
+            </label>
+            <label className="text-[12px] text-text-dim">
+              Insurance paid on bills
+              <Input
+                type="number"
+                step="0.01"
+                className="mt-1 border-0 bg-surface px-2 py-1.5 text-sm"
+                value={row.insurancePaid ?? ""}
+                onChange={(ev) => setEditDraft((d) => ({ ...d, insurancePaid: num(ev.target.value) }))}
               />
             </label>
             <label className="text-[12px] text-text-dim">
@@ -641,7 +738,12 @@ export function MedicalInvoicesByProvider({
           <span className={`tabular-nums ${dimmed ? "text-text-muted line-through decoration-text-dim/50" : "font-semibold text-text"}`}>
             {formatCurrency(amounts.outstanding)}
           </span>
-          <div className="mt-0.5 text-[12px] tabular-nums text-text-dim">Charge {formatCurrency(e.originalCharges)}</div>
+          <div className="mt-0.5 text-[12px] tabular-nums text-text-dim">
+            Charge {formatCurrency(e.originalCharges)}
+            {e.adjustmentAmount != null ? ` · Adj ${formatCurrency(e.adjustmentAmount)}` : ""}
+            {e.healthInsurancePaid != null ? ` · Health ${formatCurrency(e.healthInsurancePaid)}` : ""}
+            {e.insurancePaid != null ? ` · Ins ${formatCurrency(e.insurancePaid)}` : ""}
+          </div>
         </td>
         <td className="px-3 py-3.5 align-top">{renderStatus(entry)}</td>
         <td className="px-3 py-3.5 align-top">
@@ -742,11 +844,20 @@ export function MedicalInvoicesByProvider({
           </div>
         ) : (
           <ul className="divide-y divide-border/60 border-y border-border/60">
-            {providers.map(({ provider, visible }) => {
+            {providers.map(({ provider, visible }, index) => {
               const open = filtersActive || expanded.has(provider.key);
               const counted = provider.entries.filter((x) => x.status === "counted").length;
+              const patientKey = patientGroupKey(provider.patientName);
+              const showPatient =
+                splitByPatient &&
+                (index === 0 || patientGroupKey(providers[index - 1]!.provider.patientName) !== patientKey);
               return (
                 <li key={provider.key}>
+                  {showPatient && (
+                    <div className="bg-navy px-6 py-2 text-[13px] font-medium tracking-wide text-white lg:px-8">
+                      {provider.patientName.trim() || "Patient not set"}
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => toggleExpanded(provider.key)}
@@ -796,15 +907,18 @@ export function MedicalInvoicesByProvider({
                         {formatCurrency(provider.rollup.outstanding)}
                       </span>
                     </span>
-                    <span className="hidden w-48 text-right text-[12px] tabular-nums text-text-muted sm:block">
+                    <span className="hidden text-right text-[12px] tabular-nums text-text-muted sm:block">
                       Charges {formatCurrency(provider.rollup.charge)}
                       <br />
-                      Paid {formatCurrency(provider.rollup.paid)}
+                      Adj {formatCurrency(provider.rollup.adjusted)} · Health {formatCurrency(provider.rollup.healthInsurancePaid)}
+                      <br />
+                      Ins. paid {formatCurrency(provider.rollup.insurancePaid)}
                     </span>
                   </button>
                   {open && (
                     <div className="pb-2">
                       {renderProviderBar(provider)}
+                      {renderAmountFields(provider)}
                       <table className="w-full table-fixed text-left text-sm">
                         <colgroup>
                           <col className="w-[30%]" />
@@ -878,5 +992,36 @@ export function MedicalInvoicesByProvider({
         </details>
       )}
     </div>
+  );
+}
+
+function moneyOrNull(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const n = Number(trimmed);
+  return Number.isFinite(n) ? n : null;
+}
+
+function AmountField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="text-[12px] text-text-dim">
+      {label}
+      <Input
+        type="number"
+        step="0.01"
+        placeholder="0.00"
+        className="mt-1 w-40 border-0 bg-surface px-2 py-1.5 text-sm"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
   );
 }

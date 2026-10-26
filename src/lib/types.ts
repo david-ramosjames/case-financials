@@ -57,10 +57,17 @@ export interface MedicalExpense {
   caseNumber: string;
   providerId: string | null;
   providerName: string;
+  /** Patient named on this document. Null when it has not been extracted or entered. */
+  patientName: string | null;
   accountNumber: string | null;
   dateOfService: string | null;
   originalCharges: number | null;
   currentBalance: number | null;
+  /** Reviewer-entered adjustment. Null means the app derives it from the other amounts. */
+  adjustmentAmount: number | null;
+  healthInsurancePaid: number | null;
+  /** Other insurance paid toward this provider bill (PIP, MedPay, liability). */
+  insurancePaid: number | null;
   finalPayAmount: number | null;
   reducedFromAmount: number | null;
   payeeName: string | null;

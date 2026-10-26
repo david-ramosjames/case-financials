@@ -2,7 +2,8 @@ import type { MedicalExpense, MedicalExclusionReason } from "@/lib/types";
 import {
   alignProviderName,
   deriveLineAmounts,
-  providerGroupKey,
+  ledgerGroupKey,
+  preferredPatientName,
   type ProviderRollup,
 } from "@/lib/medical-provider-summary";
 import { preferredProviderName } from "@/lib/provider-name-match";
@@ -28,6 +29,8 @@ export interface LedgerEntry {
 
 export interface ProviderLedger {
   key: string;
+  /** Blank when no document in the group names a patient. */
+  patientName: string;
   providerName: string;
   entries: LedgerEntry[];
   rollup: ProviderRollup;
@@ -146,7 +149,8 @@ function fingerprintOf(entries: LedgerEntry[]): string {
       [
         e.id, status, reason ?? "", e.providerName.trim(), e.documentType, e.dateOfService ?? "",
         e.accountNumber ?? "", e.originalCharges ?? "", e.currentBalance ?? "", e.finalPayAmount ?? "",
-        e.reducedFromAmount ?? "", e.paymentStatus,
+        e.reducedFromAmount ?? "", e.adjustmentAmount ?? "", e.healthInsurancePaid ?? "", e.insurancePaid ?? "",
+        e.patientName ?? "", e.paymentStatus,
       ].join(":")
     )
     .join("|");
@@ -158,41 +162,54 @@ function fingerprintOf(entries: LedgerEntry[]): string {
   return `${entries.length}-${(hash >>> 0).toString(16)}`;
 }
 
-function rollupOf(providerName: string, rows: MedicalExpense[]): ProviderRollup {
+function rollupOf(providerName: string, patientName: string, rows: MedicalExpense[]): ProviderRollup {
   return rows.reduce<ProviderRollup>(
     (acc, e) => {
       const line = deriveLineAmounts(e);
       return {
         providerName,
+        patientName: preferredPatientName(acc.patientName, e.patientName) || patientName,
         charge: acc.charge + line.charge,
         paid: acc.paid + line.paid,
         adjusted: acc.adjusted + line.adjusted,
+        healthInsurancePaid: acc.healthInsurancePaid + line.healthInsurancePaid,
+        insurancePaid: acc.insurancePaid + line.insurancePaid,
         outstanding: acc.outstanding + line.outstanding,
       };
     },
-    { providerName, charge: 0, paid: 0, adjusted: 0, outstanding: 0 }
+    {
+      providerName,
+      patientName,
+      charge: 0,
+      paid: 0,
+      adjusted: 0,
+      healthInsurancePaid: 0,
+      insurancePaid: 0,
+      outstanding: 0,
+    }
   );
 }
 
 export function buildMedicalLedger(expenses: MedicalExpense[]): MedicalLedger {
   const allNames = expenses.map((e) => e.providerName.trim() || "Unknown provider");
-  const groups = new Map<string, { name: string; rows: MedicalExpense[] }>();
+  const groups = new Map<string, { name: string; patientName: string; rows: MedicalExpense[] }>();
   for (const e of expenses) {
     const name = alignProviderName(e.providerName.trim() || "Unknown provider", allNames);
-    const key = providerGroupKey(name);
+    const key = ledgerGroupKey(e.patientName, name);
     const g = groups.get(key);
     if (g) {
       g.name = preferredProviderName(g.name, name);
+      g.patientName = preferredPatientName(g.patientName, e.patientName);
       g.rows.push(e);
     } else {
-      groups.set(key, { name, rows: [e] });
+      groups.set(key, { name, patientName: e.patientName?.trim() ?? "", rows: [e] });
     }
   }
 
   const byId = new Map<string, LedgerEntry>();
   const providers: ProviderLedger[] = [];
 
-  for (const [key, { name, rows }] of groups) {
+  for (const [key, { name, patientName, rows }] of groups) {
     for (const e of rows) {
       if (e.excludedReason) {
         byId.set(e.id, {
@@ -212,10 +229,12 @@ export function buildMedicalLedger(expenses: MedicalExpense[]): MedicalLedger {
       .sort((a, b) => compareNewest(a.expense, b.expense));
     providers.push({
       key,
+      patientName,
       providerName: name,
       entries,
       rollup: rollupOf(
         name,
+        patientName,
         entries.filter((x) => x.status === "counted").map((x) => x.expense)
       ),
       suggestedCount: entries.filter((x) => x.status === "suggested").length,

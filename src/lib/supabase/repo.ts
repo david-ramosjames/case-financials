@@ -86,10 +86,14 @@ function medicalExpenseFromRow(r: Record<string, unknown>): MedicalExpense {
     caseNumber: r.case_number as string,
     providerId: (r.provider_id as string) ?? null,
     providerName: r.provider_name as string,
+    patientName: ((r.patient_name as string | null) ?? "").trim() || null,
     accountNumber: (r.account_number as string) ?? null,
     dateOfService: (r.date_of_service as string) ?? null,
     originalCharges: r.original_charges != null ? Number(r.original_charges) : null,
     currentBalance: r.current_balance != null ? Number(r.current_balance) : null,
+    adjustmentAmount: r.adjustment_amount != null ? Number(r.adjustment_amount) : null,
+    healthInsurancePaid: r.health_insurance_paid != null ? Number(r.health_insurance_paid) : null,
+    insurancePaid: r.insurance_paid != null ? Number(r.insurance_paid) : null,
     finalPayAmount: r.final_pay_amount != null ? Number(r.final_pay_amount) : null,
     reducedFromAmount: r.reduced_from_amount != null ? Number(r.reduced_from_amount) : null,
     payeeName: (r.payee_name as string) ?? null,
@@ -118,10 +122,14 @@ function medicalExpenseFromRow(r: Record<string, unknown>): MedicalExpense {
 function medicalExpenseToRow(patch: Partial<MedicalExpense>): Record<string, unknown> {
   return clean({
     provider_name: patch.providerName,
+    patient_name: patch.patientName,
     account_number: patch.accountNumber,
     date_of_service: patch.dateOfService,
     original_charges: patch.originalCharges,
     current_balance: patch.currentBalance,
+    adjustment_amount: patch.adjustmentAmount,
+    health_insurance_paid: patch.healthInsurancePaid,
+    insurance_paid: patch.insurancePaid,
     final_pay_amount: patch.finalPayAmount,
     reduced_from_amount: patch.reducedFromAmount,
     payee_name: patch.payeeName,
@@ -1209,6 +1217,7 @@ export async function markMedicalExpensePaid(
 
 export type ManualMedicalExpenseInput = {
   providerName: string;
+  patientName?: string | null;
   dropboxPermalink: string;
   fileName?: string | null;
   documentType?: MedicalExpenseDocumentType;
@@ -1216,6 +1225,9 @@ export type ManualMedicalExpenseInput = {
   dateOfService?: string | null;
   originalCharges?: number | null;
   currentBalance?: number | null;
+  adjustmentAmount?: number | null;
+  healthInsurancePaid?: number | null;
+  insurancePaid?: number | null;
   finalPayAmount?: number | null;
 };
 
@@ -1233,6 +1245,7 @@ export async function createMedicalExpense(
     case_id: caseId,
     case_number: caseNumber,
     provider_name: providerName,
+    patient_name: input.patientName?.trim() || null,
     document_type: input.documentType ?? "medical_bill",
     payment_status: "unknown",
     review_status: "needs_review",
@@ -1242,6 +1255,9 @@ export async function createMedicalExpense(
     date_of_service: input.dateOfService || null,
     original_charges: input.originalCharges ?? null,
     current_balance: input.currentBalance ?? null,
+    adjustment_amount: input.adjustmentAmount ?? null,
+    health_insurance_paid: input.healthInsurancePaid ?? null,
+    insurance_paid: input.insurancePaid ?? null,
     final_pay_amount: input.finalPayAmount ?? null,
     text_extraction_method: "manual",
   });
